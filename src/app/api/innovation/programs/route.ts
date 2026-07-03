@@ -4,6 +4,7 @@ import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers
 import { innovationProgramCreateSchema } from '@/lib/validators';
 import { getSignedUrl, uploadFileWithObjectKey } from '@/lib/minio';
 import { sanitizeFilename } from '@/lib/innovation';
+import { parseCalendarDate, parseLocalWallClock } from '@/lib/time';
 
 const getStartOfToday = () => {
   const now = new Date();
@@ -69,9 +70,9 @@ export async function POST(req: NextRequest) {
     });
     if (!parsed.success) return errorRes('Validation failed', parsed.error.issues.map((issue) => issue.message), 400);
 
-    const eventDateValue = new Date(parsed.data.eventDate);
-    const startTimeValue = new Date(parsed.data.startTime);
-    const endTimeValue = new Date(parsed.data.endTime);
+    const eventDateValue = parseCalendarDate(parsed.data.eventDate);
+    const startTimeValue = parseLocalWallClock(parsed.data.startTime);
+    const endTimeValue = parseLocalWallClock(parsed.data.endTime);
     if (eventDateValue < getStartOfToday()) {
       return errorRes('Validation failed', ['Date must not be in the past'], 400);
     }

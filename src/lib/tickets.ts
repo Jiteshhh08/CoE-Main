@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma';
 import { deleteFile, uploadFileWithObjectKey } from '@/lib/minio';
 import { logActivity } from '@/lib/activity-log';
 import { sendTicketIssuedEmail } from '@/lib/mailer';
+import { bookingDateTimeFromIST } from '@/lib/time';
 
 type TicketType = 'FACILITY_BOOKING' | 'HACKATHON_SELECTION';
 
@@ -346,17 +347,6 @@ const issueTicket = async (input: TicketBuildInput) => {
   }
 };
 
-const getBookingStartDateTime = (date: Date, timeSlot: string) => {
-  const [startRaw] = timeSlot.split(' - ');
-  const [hours, minutes] = startRaw.split(':').map(Number);
-
-  const combined = new Date(date);
-  if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
-    combined.setHours(hours, minutes, 0, 0);
-  }
-  return combined;
-};
-
 export const issueFacilityBookingTicket = async (bookingId: number) => {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -376,7 +366,7 @@ export const issueFacilityBookingTicket = async (bookingId: number) => {
     userEmail: booking.student.email,
     title: 'Booking Ticket',
     subjectName: `${booking.lab} Facility Booking`,
-    scheduledAt: getBookingStartDateTime(booking.date, booking.timeSlot),
+    scheduledAt: bookingDateTimeFromIST(booking.date, booking.timeSlot),
     instructionText: 'Present this ticket at entry. Ticket is valid for one check-in only.',
     bookingId: booking.id,
     metadata: {

@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 import { sendBookingReminderEmail } from '@/lib/mailer';
 import { NextRequest } from 'next/server';
 import { authenticate, authorize } from '@/lib/api-helpers';
+import { bookingDateTimeFromIST } from '@/lib/time';
 
 function isAuthorizedCron(req: NextRequest) {
   const expectedSecret = process.env.CRON_SECRET?.trim();
@@ -13,19 +14,6 @@ function isAuthorizedCron(req: NextRequest) {
 
   const user = authenticate(req);
   return Boolean(user && authorize(user, 'ADMIN'));
-}
-
-/**
- * Combines booking.date + booking.timeSlot into a proper Date object
- */
-function getBookingStartDateTime(date: Date, timeSlot: string): Date {
-  const [startTime] = timeSlot.split(' - '); // "18:00"
-  const [hours, minutes] = startTime.split(':').map(Number);
-
-  const bookingDateTime = new Date(date);
-  bookingDateTime.setHours(hours, minutes, 0, 0);
-
-  return bookingDateTime;
 }
 
 export async function GET(req: NextRequest) {
@@ -54,7 +42,7 @@ export async function GET(req: NextRequest) {
     // Step 2: Process each booking
     for (const booking of bookings) {
       try {
-        const bookingStart = getBookingStartDateTime(
+        const bookingStart = bookingDateTimeFromIST(
           booking.date,
           booking.timeSlot
         );

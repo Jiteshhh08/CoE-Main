@@ -4,6 +4,7 @@ import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers
 import { innovationProgramUpdateSchema } from '@/lib/validators';
 import { deleteFile, getSignedUrl, uploadFileWithObjectKey } from '@/lib/minio';
 import { sanitizeFilename } from '@/lib/innovation';
+import { parseCalendarDate, parseLocalWallClock } from '@/lib/time';
 
 const getStartOfToday = () => {
   const now = new Date();
@@ -82,9 +83,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (typeof parsed.data.description !== 'undefined') updateData.description = parsed.data.description;
     if (typeof parsed.data.programType !== 'undefined') updateData.programType = parsed.data.programType;
     if (typeof parsed.data.venue !== 'undefined') updateData.venue = parsed.data.venue;
-    if (typeof parsed.data.eventDate !== 'undefined') updateData.eventDate = new Date(parsed.data.eventDate);
-    if (typeof parsed.data.startTime !== 'undefined') updateData.startTime = new Date(parsed.data.startTime);
-    if (typeof parsed.data.endTime !== 'undefined') updateData.endTime = new Date(parsed.data.endTime);
+    if (typeof parsed.data.eventDate !== 'undefined') updateData.eventDate = parseCalendarDate(parsed.data.eventDate);
+    if (typeof parsed.data.startTime !== 'undefined') updateData.startTime = parseLocalWallClock(parsed.data.startTime);
+    if (typeof parsed.data.endTime !== 'undefined') updateData.endTime = parseLocalWallClock(parsed.data.endTime);
 
     const nextEventDate = (updateData.eventDate as Date | undefined) ?? existing.eventDate;
     const nextStartTime = (updateData.startTime as Date | undefined) ?? existing.startTime;

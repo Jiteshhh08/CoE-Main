@@ -8,6 +8,7 @@ import {
   InternshipWorkspaceError,
 } from '@/lib/internship-workspace';
 import { createNotifications } from '@/lib/notifications';
+import { parseLocalWallClock } from '@/lib/time';
 
 const dateTimeInputSchema = z.string().trim().min(1).refine(
   (value) => !Number.isNaN(new Date(value).getTime()),
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
         title: parsed.data.title,
         description: parsed.data.description?.trim() || null,
         assignedToId: parsed.data.assignedToId,
-        deadline: parsed.data.deadline ? new Date(parsed.data.deadline) : null,
+        deadline: parsed.data.deadline ? parseLocalWallClock(parsed.data.deadline) : null,
       },
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
@@ -186,7 +187,7 @@ export async function PATCH(req: NextRequest) {
         title: parsed.data.title ?? undefined,
         description: parsed.data.description ?? undefined,
         assignedToId: parsed.data.assignedToId ?? undefined,
-        deadline: parsed.data.deadline === undefined ? undefined : parsed.data.deadline ? new Date(parsed.data.deadline) : null,
+        deadline: parsed.data.deadline === undefined ? undefined : parsed.data.deadline ? parseLocalWallClock(parsed.data.deadline) : null,
         status: parsed.data.status ?? undefined,
       },
       include: { assignedTo: { select: { id: true, name: true, email: true } } },

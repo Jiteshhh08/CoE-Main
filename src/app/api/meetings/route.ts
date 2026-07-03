@@ -8,6 +8,7 @@ import {
   InternshipWorkspaceError,
 } from '@/lib/internship-workspace';
 import { createNotifications } from '@/lib/notifications';
+import { parseLocalWallClock } from '@/lib/time';
 
 const dateTimeInputSchema = z.string().trim().min(1).refine(
   (value) => !Number.isNaN(new Date(value).getTime()),
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
       ? parsed.data.recurrenceInterval ?? 1
       : 1;
     const recurrenceDay = recurrenceType === 'WEEKLY'
-      ? parsed.data.recurrenceDay ?? new Date(parsed.data.datetime).getDay()
+      ? parsed.data.recurrenceDay ?? parseLocalWallClock(parsed.data.datetime).getDay()
       : null;
     const isActive = parsed.data.isActive ?? true;
 
@@ -160,7 +161,7 @@ export async function POST(req: NextRequest) {
       data: {
         problemId: parsed.data.problemId,
         title: parsed.data.title,
-        datetime: new Date(parsed.data.datetime),
+        datetime: parseLocalWallClock(parsed.data.datetime),
         link: parsed.data.link,
         description: parsed.data.description?.trim() || null,
         recurrenceType,
