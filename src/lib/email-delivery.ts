@@ -242,27 +242,6 @@ const markFailure = async (job: any, err: unknown) => {
   });
 };
 
-const attemptImmediateDelivery = async (job: any) => {
-  await (prisma as any).emailJob.update({
-    where: { id: job.id },
-    data: {
-      status: 'PROCESSING',
-      attempts: { increment: 1 },
-      lastAttemptAt: now(),
-      lockedAt: now(),
-    },
-  });
-
-  try {
-    const providerMessageId = await smtpSend(job.toEmail, job.subject, job.htmlBody);
-    await markSent(job.id, providerMessageId);
-    return { sent: 1, queued: 0, failed: 0 };
-  } catch (err) {
-    await markFailure(job, err);
-    return { sent: 0, queued: 1, failed: 0 };
-  }
-};
-
 export const dispatchEmail = async ({
   to,
   subject,
@@ -307,8 +286,22 @@ export const dispatchEmail = async ({
     queued += 1;
 
     if (mode === 'immediate') {
-      const outcome = await attemptImmediateDelivery(job);
-      sent += outcome.sent;
+      // Send first, then record — never create a PENDING job that the cron
+      // queue could race against and double-send.
+      try {
+        const providerMessageId = await smtpSend(recipient, subject, html);
+        await (prisma as any).emailJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'SENT',
+            sentAt: now(),
+            providerMessageId,
+          },
+        });
+        sent += 1;
+      } catch (err) {
+        await markFailure(job, err);
+      }
     }
   }
 
