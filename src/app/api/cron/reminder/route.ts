@@ -25,10 +25,6 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const thirtyMinsLater = new Date(now.getTime() + 30 * 60 * 1000);
 
-    console.log('NOW:', now.toISOString());
-    console.log('30 MINS LATER:', thirtyMinsLater.toISOString());
-
-    // Step 1: Fetch relevant bookings (no date filtering here)
     const bookings = await prisma.booking.findMany({
       where: {
         status: 'CONFIRMED',
@@ -39,7 +35,6 @@ export async function GET(req: NextRequest) {
 
     let sent = 0;
 
-    // Step 2: Process each booking
     for (const booking of bookings) {
       try {
         const bookingStart = bookingDateTimeFromIST(
@@ -47,12 +42,6 @@ export async function GET(req: NextRequest) {
           booking.timeSlot
         );
 
-        console.log(
-          `Booking ${booking.id} starts at:`,
-          bookingStart.toISOString()
-        );
-
-        // Step 3: Check if within next 30 minutes
         if (
           bookingStart >= now &&
           bookingStart <= thirtyMinsLater
