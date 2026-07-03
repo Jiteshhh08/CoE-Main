@@ -659,7 +659,7 @@ export default function LoginPage() {
     if (!googleSignInEnabled) return null;
     return (
       <div className="mt-5">
-        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px]">
+        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px] flex justify-center">
           {googleBtnWidth > 0 && (
             <GoogleLogin
               onSuccess={(response) => {
@@ -830,7 +830,7 @@ export default function LoginPage() {
       </p>
 
       <div className="mt-5">
-        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px]">
+        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px] flex justify-center">
           {googleBtnWidth > 0 && (
             <GoogleLogin
               onSuccess={(response) => {
