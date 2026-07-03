@@ -245,8 +245,13 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data?.message || "OTP verification failed.");
       setNeedsOtp(false);
       setOtp("");
-      setStatus("Email verified. Please login again.");
-      pushToast("Email verified. You can login now.", "success");
+
+      // OTP verify now auto-logs in — redirect to callbackUrl or default
+      const callbackUrl = searchParams.get("callbackUrl") || "";
+      const destination = isValidCallbackUrl(callbackUrl)
+        ? callbackUrl
+        : DEFAULT_CALLBACK_URL;
+      window.location.assign(destination);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "OTP verification failed.";

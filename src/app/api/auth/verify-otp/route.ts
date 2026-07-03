@@ -1,8 +1,18 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { successRes, errorRes } from '@/lib/api-helpers';
+import { errorRes, useSecureCookies } from '@/lib/api-helpers';
 import { otpVerifySchema } from '@/lib/validators';
 import { syncDashboardUser } from '@/lib/dashboard-sync';
+import {
+  ACCESS_TOKEN_TTL_SECONDS,
+  REFRESH_TOKEN_TTL_SECONDS,
+  SHARED_TOKEN_TTL_SECONDS,
+  generateAccessToken,
+  generateRefreshToken,
+  generateSharedToken,
+  TokenPayload,
+} from '@/lib/jwt';
+import { buildSharedTokenPayload, getSharedCookieOptions, SHARED_COOKIE_NAME } from '@/lib/shared-auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,13 +49,18 @@ export async function POST(req: NextRequest) {
 
     const verifiedUser = await prisma.user.findFirst({
       where: { email },
-      select: { email: true, name: true, role: true, uid: true },
+      select: { id: true, email: true, name: true, role: true, uid: true, status: true, industryId: true },
     });
 
     await prisma.otp.deleteMany({ where: { email } });
 
-    if (verifiedUser && verifiedUser.role === 'STUDENT') {
-      await syncDashboardUser({
+    if (!verifiedUser) {
+      return errorRes('User not found after verification.', [], 500);
+    }
+
+    // Fire-and-forget dashboard sync
+    if (verifiedUser.role === 'STUDENT') {
+      syncDashboardUser({
         email: verifiedUser.email,
         name: verifiedUser.name,
         role: verifiedUser.role,
@@ -55,7 +70,58 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return successRes(null, 'Email verified successfully. You can now log in.');
+    // Auto-login: generate auth tokens and set cookies
+    const payload: TokenPayload = {
+      id: verifiedUser.id,
+      role: verifiedUser.role,
+      name: verifiedUser.name,
+      email: verifiedUser.email,
+      industryId: verifiedUser.industryId,
+      ...(verifiedUser.uid && { uid: verifiedUser.uid }),
+    };
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+    const sharedToken = generateSharedToken(buildSharedTokenPayload(verifiedUser));
+    const secureCookies = useSecureCookies();
+    const sharedCookieOptions = getSharedCookieOptions();
+
+    const response = NextResponse.json({
+      success: true,
+      message: 'Email verified successfully.',
+      data: {
+        accessToken,
+        user: {
+          id: verifiedUser.id,
+          name: verifiedUser.name,
+          email: verifiedUser.email,
+          role: verifiedUser.role,
+          uid: verifiedUser.uid,
+          industryId: verifiedUser.industryId,
+        },
+      },
+    });
+
+    response.cookies.set('accessToken', accessToken, {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: 'lax',
+      maxAge: ACCESS_TOKEN_TTL_SECONDS,
+      path: '/',
+    });
+    response.cookies.set('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: 'lax',
+      maxAge: REFRESH_TOKEN_TTL_SECONDS,
+      path: '/',
+    });
+    response.cookies.set(SHARED_COOKIE_NAME, sharedToken, {
+      ...sharedCookieOptions,
+      maxAge: SHARED_TOKEN_TTL_SECONDS,
+    });
+
+    return response;
   } catch (err) {
     console.error('OTP verify error:', err);
     return errorRes('Internal server error', [], 500);
