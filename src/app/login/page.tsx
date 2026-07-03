@@ -43,6 +43,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showStudentEmailForm, setShowStudentEmailForm] = useState(false);
   const [showLinkPrompt, setShowLinkPrompt] = useState(false);
   const [linkPromptData, setLinkPromptData] = useState<{
     credential: string;
@@ -697,6 +698,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => {
                   setActiveAuthMode("register-student");
+                  setShowStudentEmailForm(false);
                   setNeedsOtp(false);
                   setError("");
                   setStatus("");
@@ -735,6 +737,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => {
                 setUidPreview(null);
+                setShowStudentEmailForm(false);
                 setActiveAuthMode("register-student");
               }}
               className={`border px-3 py-2 text-[11px] font-bold uppercase tracking-wider ${
@@ -830,6 +833,150 @@ export default function LoginPage() {
                 </button>
               </form>
             </>
+          ) : activeAuthMode === "register-student" ? (
+            <div>
+              {/* Google recommendation for student registration */}
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                <p className="flex items-center gap-1.5 text-sm font-bold text-emerald-800">
+                  <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM7 4.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm.25 2.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5z"/>
+                  </svg>
+                  Recommended
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-emerald-700">
+                  <li className="flex items-center gap-1.5">✓ Instant registration — no OTP</li>
+                  <li className="flex items-center gap-1.5">✓ No password to remember</li>
+                  <li className="flex items-center gap-1.5">✓ Uses your TCET email automatically</li>
+                </ul>
+              </div>
+
+              {/* Prominent Google button */}
+              <div className="mt-4">
+                {googleSignInEnabled && googleClientId ? (
+                  <div className="flex justify-center">
+                    <GoogleLogin
+                      onSuccess={(response) => {
+                        if (response.credential) {
+                          void handleGoogleCredential(response.credential);
+                        }
+                      }}
+                      onError={() => {
+                        setError("Google sign-in failed. Please try again.");
+                      }}
+                      theme="outline"
+                      size="large"
+                      text="continue_with"
+                      shape="rectangular"
+                      width="400"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Separator + email fallback */}
+              <div className="mt-6 relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-[#d9dbe5]" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-white px-2 text-[#747782]">
+                    Need another option?
+                  </span>
+                </div>
+              </div>
+
+              {!showStudentEmailForm ? (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowStudentEmailForm(true)}
+                    className="text-sm font-medium text-[#8c4f00] hover:text-[#002155] underline underline-offset-2"
+                  >
+                    Continue with Email
+                  </button>
+                </div>
+              ) : (
+                <form className="mt-6 space-y-5" onSubmit={handleRegister}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={registerName}
+                        onChange={(event) => setRegisterName(event.target.value)}
+                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                        Institutional Email
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={registerEmail}
+                        onChange={(event) => setRegisterEmail(event.target.value)}
+                        placeholder="name@tcetmumbai.in"
+                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                        Phone
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={registerPhone}
+                        onChange={(event) => setRegisterPhone(event.target.value)}
+                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                        Student UID
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={registerUid}
+                        onChange={(event) => setRegisterUid(event.target.value)}
+                        placeholder="24-COMPD13-28"
+                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
+                      />
+                      <p className="text-[11px] text-[#434651]">
+                        UID format: STARTYEAR-BRANCHDIVISIONROLLNO-ENDYEAR
+                      </p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={registerPassword}
+                        onChange={(event) =>
+                          setRegisterPassword(event.target.value)
+                        }
+                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={registerLoading}
+                    className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70"
+                  >
+                    {registerLoading ? "Submitting..." : "Register Student"}
+                  </button>
+                </form>
+              )}
+            </div>
           ) : (
             <>
               {renderGoogleButton()}
@@ -884,24 +1031,6 @@ export default function LoginPage() {
                     className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
                   />
                 </div>
-                {activeAuthMode === "register-student" ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                      Student UID
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={registerUid}
-                      onChange={(event) => setRegisterUid(event.target.value)}
-                      placeholder="24-COMPD13-28"
-                      className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                    />
-                    <p className="text-[11px] text-[#434651]">
-                      UID format: STARTYEAR-BRANCHDIVISIONROLLNO-ENDYEAR
-                    </p>
-                  </div>
-                ) : null}
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
                     Password
@@ -925,9 +1054,7 @@ export default function LoginPage() {
               >
                 {registerLoading
                   ? "Submitting..."
-                  : activeAuthMode === "register-student"
-                    ? "Register Student"
-                    : "Register Faculty"}
+                  : "Register Faculty"}
               </button>
             </form>
             </>
