@@ -1,7 +1,7 @@
 # TCET Centre of Excellence Portal
 
 Production-oriented Next.js App Router portal for TCET CoE with:
-- role-based authentication and access control
+- role-based authentication and access control (email/password + Google Sign-In)
 - student facility booking and admin moderation
 - faculty/admin content publishing (news, events, grants, announcements)
 - innovation platform with separated open-problem and hackathon tracks
@@ -36,7 +36,7 @@ Production-oriented Next.js App Router portal for TCET CoE with:
 ## 1) System Overview
 
 The portal serves three authenticated personas plus public visitors:
-- Students: register, verify OTP, login, book facilities, participate in innovation
+- Students: register (email/password or Google), verify OTP, login, book facilities, participate in innovation
 - Faculty: manage content, create and review innovation/hackathon workflows
 - Admin: operational moderation, analytics, and platform governance
 - Public: browse homepage content and innovation landing/event pages
@@ -201,7 +201,8 @@ graph LR
 | Capability | Public | Student | Faculty | Admin |
 |---|---:|---:|---:|---:|
 | View homepage feeds | Yes | Yes | Yes | Yes |
-| Register account | No | Yes | Yes | No |
+| Register account | No | Yes (email/Google) | Yes | No |
+| Sign in with Google | No | Yes | Yes (link existing) | Yes (link existing) |
 | Maintain profile | No | Yes | Yes | No |
 | Verify OTP / reset password via OTP | No | Yes | Yes | Yes |
 | Login / logout / refresh session | No | Yes | Yes | Yes |
@@ -230,11 +231,13 @@ graph LR
 - UI: React 19 + Tailwind CSS v4
 - Analytics: Google Analytics 4 via `@next/third-parties`
 - Database: MySQL + Prisma ORM
-- Auth: JWT access/refresh in httpOnly cookies
+- Auth: JWT access/refresh in httpOnly cookies, Google OAuth 2.0 via `google-auth-library`
+- Frontend auth: `@react-oauth/google` for Google Sign-In button
 - Validation: Zod
 - Email: Nodemailer (SMTP) with durable DB-backed queue (`email_jobs`) and explicit job logging for direct attachment sends
 - Storage: MinIO (S3-compatible)
 - Scheduled jobs: cron-triggered route handlers + email queue worker
+- Startup: `instrumentation.ts` for server-level initialization (IPv4 DNS fix)
 
 ## 4) Architecture and Core Flows
 
@@ -351,6 +354,7 @@ erDiagram
 - Refresh endpoint rotates access token
 - Logout clears auth cookies
 - Page-level redirects enforce role boundaries
+- Google Sign-In: uses the same JWT + cookie system — OAuth entry point (`POST /api/auth/google`) verifies the Google ID token, then issues the same 3 cookies as email/password login
 
 ### 4.3 Booking lifecycle
 
@@ -544,9 +548,10 @@ graph TD
   root["🔌 /api"]
 
   auth["🔐 /auth"]
-  auth_reg["POST /register/student<br/>POST /register/faculty"]
+  auth_reg["POST /register/student<br/>POST /register/faculty<br/>POST /register/google"]
   auth_verify["POST /verify-otp<br/>POST /resend-otp"]
   auth_session["POST /login<br/>POST /refresh<br/>POST /logout"]
+  auth_google["POST /google<br/>POST /google/link"]
   auth_pwd["POST /forgot-password<br/>POST /reset-password"]
 
   booking["📅 /bookings"]
@@ -590,6 +595,7 @@ graph TD
   auth --> auth_reg
   auth --> auth_verify
   auth --> auth_session
+  auth --> auth_google
   auth --> auth_pwd
 
   booking --> booking_create
@@ -720,7 +726,7 @@ stateDiagram-v2
 ## 5) Data Model
 
 Primary entities:
-- `User` (role/status/verification)
+- `User` (role/status/verification, `googleId` for Google OAuth mapping)
 - `Otp` (verification/reset OTP)
 - `Booking`
 - `NewsPost`
@@ -833,6 +839,7 @@ Public/common pages:
 - `/laboratory`
 - `/innovation`
 - `/innovation/events/[id]`
+- `/register/complete` (Google registration completion)
 
 Auth pages:
 - `/login`
@@ -1000,6 +1007,9 @@ Response envelope pattern:
 - `POST /api/auth/logout`
 - `POST /api/auth/forgot-password`
 - `POST /api/auth/reset-password`
+- `POST /api/auth/google` — OAuth entry point. Accepts `{ credential }` (Google ID token), determines action: `login`, `register`, `link_prompt`, `pending`, `rejected`, or `invalid_domain`. Sets `pending_reg` cookie for new registrations.
+- `POST /api/auth/register/google` — Completes Google registration. Reads `pending_reg` cookie, creates user with random password, issues JWT + 3 cookies. Rate-limited: 10 req/min/IP.
+- `POST /api/auth/google/link` — Links Google identity to an existing account. Used when a returning user clicks "Continue with Google" and confirms the link prompt. Rate-limited: 10 req/min/IP.
 
 ### 7.2 Booking APIs
 
@@ -1252,6 +1262,13 @@ MINIO_USE_SSL=false
 MINIO_BUCKET="coe-assets"
 
 NEXT_PUBLIC_GA_ID="G-XXXXXXXXXX"
+
+# Google Sign-In
+GOOGLE_CLIENT_ID=
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+GOOGLE_REGISTRATION_SECRET=
+GOOGLE_SIGNIN_ENABLED=false
+ALLOWED_EMAIL_DOMAIN=tcetmumbai.in
 ```
 
 OAuth2 mail security notes:
@@ -1264,6 +1281,23 @@ Optional variables:
 - `FRONTEND_URL`
 - `MINIO_USE_PROXY=true|false`
 - `COOKIE_SECURE=true|false` (set `false` for HTTP development, `true` for HTTPS production)
+
+### Google Sign-In Variables
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `GOOGLE_CLIENT_ID` | Yes | — | Server-side OAuth client ID for ID token verification |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Yes | — | Public client ID for frontend `@react-oauth/google` provider |
+| `GOOGLE_REGISTRATION_SECRET` | Yes | — | Secret for signing `pending_reg` registration JWT |
+| `GOOGLE_SIGNIN_ENABLED` | No | `false` | Feature flag — when false, all Google endpoints return 404 |
+| `ALLOWED_EMAIL_DOMAIN` | No | `tcetmumbai.in` | Restrict Google sign-ups to institutional domain |
+
+Google Sign-In variables:
+- `GOOGLE_CLIENT_ID` — Server-side OAuth client ID for ID token verification via `google-auth-library`.
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` — Public client ID for the frontend `@react-oauth/google` provider (same value as `GOOGLE_CLIENT_ID`).
+- `GOOGLE_REGISTRATION_SECRET` — Secret for signing the `pending_reg` JWT (separate from auth token secrets — different security boundary).
+- `GOOGLE_SIGNIN_ENABLED` — Feature flag. When `false` (default), all Google endpoints return 404 and the button is hidden.
+- `ALLOWED_EMAIL_DOMAIN` — Restricts Google sign-ups to a specific email domain (default: `tcetmumbai.in`).
 
 ## 9) Local Development
 
@@ -1675,11 +1709,19 @@ Operational health:
 ## 13) Security Model
 
 - Passwords hashed with bcrypt
+- Google users receive a cryptographically secure random password (`crypto.randomBytes(32)` → `bcrypt.hash(12)`) — the `password` field is always non-null
 - Access/refresh token secrets from environment
 - Route guards use centralized `authenticate()` + `authorize()`
 - Forgot-password flow uses non-enumerating response behavior
 - Password reset requires valid OTP within TTL window
 - Role-based page redirects reduce unauthorized surface area in UI
+- Google ID token verification via `google-auth-library` (validates signature, `aud`, `iss`, `exp`, `email_verified`)
+- Google Sign-In feature flag (`GOOGLE_SIGNIN_ENABLED`) makes all Google routes completely inert when disabled
+- Registration JWT (`pending_reg`) uses a dedicated secret (`GOOGLE_REGISTRATION_SECRET`), separate from auth token secrets — different security boundary (pre-auth vs post-auth)
+- `pending_reg` cookie is `httpOnly`, `SameSite=Strict`, 15-minute TTL — replay window limited; unique constraints on `email`, `uid`, `googleId` prevent duplicate user creation
+- Account linking route enforces status checks (PENDING/REJECTED blocked) before issuing tokens
+- Rate limiting on all Google auth endpoints (30 req/min for OAuth entry, 10 req/min for registration and linking)
+- Google Sign-In cannot create faculty accounts — only `STUDENT` role is assigned through Google registration; faculty/admin can link existing accounts
 
 ## 14) Troubleshooting
 
@@ -1761,6 +1803,18 @@ graph LR
   style 503 fill:#ffcdd2
 ```
 - Access token expired; refresh flow should issue a new access token
+
+Google Sign-In hangs or returns `GOOGLE_TOKEN_INVALID`:
+- Verify `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` are set to the same value
+- Verify the Google OAuth Web Client ID has the correct authorised redirect URI
+- Verify the server has internet access to reach `accounts.google.com` for cert fetching
+- Rate limited? Wait 60s and retry (30 req/min/IP)
+
+Google registration fails with `GOOGLE_REGISTRATION_EXPIRED`:
+- The `pending_reg` cookie expired (15 min TTL). User must start again from the login page.
+
+New Google user not appearing in dashboard:
+- Dashboard sync is fire-and-forget; run `npm run db:sync-users` as a manual backfill or verify `DASHBOARD_URL` and `SYNC_SECRET` are configured
 
 Mixed-content or broken media URLs:
 - Use `/api/storage/[...path]` proxy for non-SSL MinIO setups
@@ -1856,6 +1910,9 @@ graph TD
   AUTH_CHECK2["Verify OTP (5 min TTL)"]
   AUTH_CHECK3["Login & token in cookies"]
   AUTH_CHECK4["Forgot/reset password"]
+  AUTH_CHECK5["Google Sign-In login"]
+  AUTH_CHECK6["Google registration (new user)"]
+  AUTH_CHECK7["Google account linking (existing user)"]
 
   FACILITY_CHECK["Facility Booking"]
   FACILITY_CHECK1["Student creates booking"]
@@ -1889,6 +1946,9 @@ graph TD
   AUTH_CHECK --> AUTH_CHECK2
   AUTH_CHECK --> AUTH_CHECK3
   AUTH_CHECK --> AUTH_CHECK4
+  AUTH_CHECK --> AUTH_CHECK5
+  AUTH_CHECK --> AUTH_CHECK6
+  AUTH_CHECK --> AUTH_CHECK7
   BUILD --> FACILITY_CHECK
   FACILITY_CHECK --> FACILITY_CHECK1
   FACILITY_CHECK --> FACILITY_CHECK2
@@ -1922,7 +1982,7 @@ graph TD
 
 Before release:
 - `npm run build`
-- Verify auth flows (register, OTP verify, login, forgot/reset password)
+- Verify auth flows (register, OTP verify, login, forgot/reset password, Google Sign-In, Google registration, Google account linking)
 - Verify student booking lifecycle and admin moderation
 - Verify faculty content create/update/delete flows with uploads
 - Verify innovation two-stage flow:
@@ -1954,6 +2014,7 @@ mindmap
       Login/Logout
       Password Reset
       Token Refresh
+      Google Sign-In
     📚 Content Management
       📰 News Feed
       🎪 Events
@@ -2024,7 +2085,11 @@ graph LR
 ```mermaid
 timeline
   title Recent Project Enhancements
-  section Current (2026-03)
+  section Current (2026-07)
+    Google Sign-In integration
+    Google registration + account linking
+    DNS IPv4-first fix for SMTP
+  section Previous (2026-03)
     Resume file name handling in applications
     Problem submission question handling
     Student profile management and modals
@@ -2050,6 +2115,7 @@ timeline
 | **Scheduler (Cron)** | ✅ Active | `/api/cron/*` | Automated jobs & reminders |
 | **OTP System** | ✅ Active | In-memory (5 min TTL) | Email verification |
 | **File Upload** | ✅ Active | Multipart form data | Resume/PPT handling |
+| **Google OAuth** | ✅ Active | `google-auth-library` / `@react-oauth/google` | Google Sign-In login, registration, and account linking |
 
 ---
 
@@ -2084,7 +2150,7 @@ timeline
 ---
 
 **Project Status**: ✅ Production Ready
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-07-02
 **Version**: 1.0 Stable
 **Maintained by**: TCET Centre of Excellence Team
 **Next Review**: Upon completion of next enhancement cycle

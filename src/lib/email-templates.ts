@@ -1,3 +1,14 @@
+import { marked } from "marked";
+
+// Configure marked for email-safe output:
+// - gfm: true  — tables, strikethrough, task lists, autolinks
+// - breaks: true — single newline = <br> (like GitHub comments)
+// - mangle: false — don't mangle email addresses
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
+
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, "&amp;")
@@ -13,7 +24,8 @@ export const buildAdminBroadcastEmailHtml = (input: {
 }) => {
   const subject = escapeHtml(input.subject.trim());
   const previewText = escapeHtml((input.previewText || input.subject).trim());
-  const message = escapeHtml(input.message.trim()).replace(/\r?\n/g, "<br />");
+  const rawMessage = input.message.trim();
+  const message = marked.parse(rawMessage) as string;
 
   return `<!DOCTYPE html>
 <html lang="en">
