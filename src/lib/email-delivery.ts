@@ -275,15 +275,20 @@ export const dispatchEmail = async ({
       // could read before we mark it SENT, causing a duplicate send.
       try {
         const providerMessageId = await smtpSend(recipient, subject, html);
-        await createEmailJob({
-          toEmail: recipient,
-          subject,
-          htmlBody: html,
-          category,
-          mode: 'IMMEDIATE',
-          priority: immediatePriority,
-          dedupeKey: undefined,
-          metadata,
+        await (prisma as any).emailJob.create({
+          data: {
+            toEmail: recipient,
+            subject,
+            htmlBody: html,
+            category,
+            mode: 'IMMEDIATE',
+            status: 'SENT',
+            sentAt: now(),
+            priority: immediatePriority,
+            maxAttempts,
+            providerMessageId,
+            metadata: metadata ?? null,
+          },
         });
         sent += 1;
       } catch (err) {
