@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
@@ -644,24 +644,22 @@ export default function LoginPage() {
 
   const googleSignInEnabled = Boolean(googleClientId);
 
-  const googleBtnRef = useRef<HTMLDivElement>(null);
   const [googleBtnWidth, setGoogleBtnWidth] = useState(0);
+  const googleBtnWidthRef = useRef(0);
 
-  useLayoutEffect(() => {
-    const el = googleBtnRef.current;
-    if (!el) return;
-    const measure = () => setGoogleBtnWidth(el.offsetWidth);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [activeAuthMode]);
+  const googleBtnMeasureRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    if (node.offsetWidth === 0) return;
+    if (node.offsetWidth === googleBtnWidthRef.current) return;
+    googleBtnWidthRef.current = node.offsetWidth;
+    setGoogleBtnWidth(node.offsetWidth);
+  }, []);
 
   const renderGoogleButton = () => {
     if (!googleSignInEnabled) return null;
     return (
       <div className="mt-5">
-        <div ref={googleBtnRef} className="w-full min-h-[52px]">
+        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px]">
           {googleBtnWidth > 0 && (
             <GoogleLogin
               onSuccess={(response) => {
@@ -832,7 +830,7 @@ export default function LoginPage() {
       </p>
 
       <div className="mt-5">
-        <div ref={googleBtnRef} className="w-full min-h-[52px]">
+        <div ref={googleBtnMeasureRef} className="w-full min-h-[52px]">
           {googleBtnWidth > 0 && (
             <GoogleLogin
               onSuccess={(response) => {
