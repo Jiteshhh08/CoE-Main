@@ -114,13 +114,21 @@ export type SendEmailInput = {
 export const sendEmail = async ({ to, subject, html, attachments }: SendEmailInput) => {
   try {
     const transporter = getTransporter();
-    return await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: process.env.SMTP_FROM || '"TCET CoE" <noreply@tcetmumbai.in>',
       to,
       subject,
       html,
       attachments,
     });
+    console.log('[EMAIL_SENT]', {
+      messageId: info.messageId,
+      to,
+      subject,
+      accepted: info.accepted?.length,
+      rejected: info.rejected?.length,
+    });
+    return info;
   } catch (err) {
     if (isAuthOrTokenError(err)) {
       logAuthOrTokenError(err, { to, subject });
@@ -262,18 +270,49 @@ export const dispatchEmail = async ({
   let duplicates = 0;
 
   for (const recipient of recipients) {
-    const resolvedDedupeKey =
-      mode === 'bulk'
-        ? buildBulkDedupeKey(category, recipient, subject, html, dedupeKey)
-        : dedupeKey;
+    if (mode === 'immediate') {
+      // Send first, record after — never create a PENDING job that the cron
+      // could read before we mark it SENT, causing a duplicate send.
+      try {
+        const providerMessageId = await smtpSend(recipient, subject, html);
+        await createEmailJob({
+          toEmail: recipient,
+          subject,
+          htmlBody: html,
+          category,
+          mode: 'IMMEDIATE',
+          priority: immediatePriority,
+          dedupeKey: undefined,
+          metadata,
+        });
+        sent += 1;
+      } catch (err) {
+        // Email genuinely failed — create a PENDING job so the cron retries it
+        const { job } = await createEmailJob({
+          toEmail: recipient,
+          subject,
+          htmlBody: html,
+          category,
+          mode: 'IMMEDIATE',
+          priority: immediatePriority,
+          dedupeKey: undefined,
+          metadata,
+        });
+        if (job) await markFailure(job, err);
+      }
+      continue;
+    }
+
+    // Bulk mode: queue for cron processing
+    const resolvedDedupeKey = buildBulkDedupeKey(category, recipient, subject, html, dedupeKey);
 
     const { job, duplicate } = await createEmailJob({
       toEmail: recipient,
       subject,
       htmlBody: html,
       category,
-      mode: mode === 'bulk' ? 'BULK' : 'IMMEDIATE',
-      priority: mode === 'bulk' ? bulkPriority : immediatePriority,
+      mode: 'BULK',
+      priority: bulkPriority,
       dedupeKey: resolvedDedupeKey,
       metadata,
     });
@@ -284,25 +323,6 @@ export const dispatchEmail = async ({
     }
 
     queued += 1;
-
-    if (mode === 'immediate') {
-      // Send first, then record — never create a PENDING job that the cron
-      // queue could race against and double-send.
-      try {
-        const providerMessageId = await smtpSend(recipient, subject, html);
-        await (prisma as any).emailJob.update({
-          where: { id: job.id },
-          data: {
-            status: 'SENT',
-            sentAt: now(),
-            providerMessageId,
-          },
-        });
-        sent += 1;
-      } catch (err) {
-        await markFailure(job, err);
-      }
-    }
   }
 
   return {
