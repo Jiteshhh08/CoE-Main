@@ -342,10 +342,16 @@ export const processEmailQueue = async (limit = 50) => {
   let skipped = 0;
 
   for (const job of jobs) {
+    // Use a precise status filter matching the OR branch the job was read from.
+    // PENDING/RETRY jobs must only be claimable as PENDING/RETRY — never
+    // as PROCESSING. Otherwise two concurrent workers both claim the same
+    // job (Worker A sets →PROCESSING, Worker B's claim still matches
+    // because PROCESSING is in the array) and both send the email.
+    const claimStatus = job.status === 'PROCESSING' ? ['PROCESSING'] : ['PENDING', 'RETRY'];
     const claimed = await (prisma as any).emailJob.updateMany({
       where: {
         id: job.id,
-        status: { in: ['PENDING', 'RETRY', 'PROCESSING'] },
+        status: { in: claimStatus },
       },
       data: {
         status: 'PROCESSING',
