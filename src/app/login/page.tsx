@@ -78,6 +78,23 @@ export default function LoginPage() {
     }
   }, [needsOtp]);
 
+  // Reset tab-specific state when switching auth modes — prevents content leak between tabs
+  useEffect(() => {
+    setShowStudentEmailForm(false);
+    setShowLinkPrompt(false);
+    setLinkPromptData(null);
+    setNeedsOtp(false);
+    setOtp("");
+    setError("");
+    setStatus("");
+    setRegisterName("");
+    setRegisterEmail("");
+    setRegisterPhone("");
+    setRegisterPassword("");
+    setRegisterUid("");
+    setUidPreview(null);
+  }, [activeAuthMode]);
+
   useEffect(() => {
     if (hasShownBookingRequiredToast.current) return;
 
@@ -627,443 +644,496 @@ export default function LoginPage() {
 
   const googleSignInEnabled = Boolean(googleClientId);
 
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [googleBtnWidth, setGoogleBtnWidth] = useState(0);
+
+  useEffect(() => {
+    const el = googleBtnRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setGoogleBtnWidth(entry.contentRect.width);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const renderGoogleButton = () => {
     if (!googleSignInEnabled) return null;
     return (
-      <div className="mt-4">
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#d9dbe5]" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-2 text-[#747782]">
-              or continue with
-            </span>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-center">
-          <GoogleLogin
-            onSuccess={(response) => {
-              if (response.credential) {
-                void handleGoogleCredential(
-                  response.credential,
-                );
-              }
-            }}
-            onError={() => {
-              setError(
-                "Google sign-in failed. Please try again.",
-              );
-            }}
-            theme="outline"
-            size="large"
-            text="continue_with"
-            shape="rectangular"
-            width="300"
-          />
+      <div className="mt-5">
+        <div ref={googleBtnRef} className="w-full min-h-[52px]">
+          {googleBtnWidth > 0 && (
+            <GoogleLogin
+              onSuccess={(response) => {
+                if (response.credential) {
+                  void handleGoogleCredential(response.credential);
+                }
+              }}
+              onError={() => {
+                setError("Google sign-in failed. Please try again.");
+              }}
+              theme="outline"
+              size="large"
+              text="continue_with"
+              shape="rectangular"
+              width={googleBtnWidth}
+              logo_alignment="center"
+            />
+          )}
         </div>
       </div>
     );
   };
 
-  const content = (
-    <main className="min-h-screen pt-[120px] pb-16 px-4 md:px-8">
-      <section className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-5 bg-[#002155] text-white p-8 md:p-10 border border-[#0b2a5a] relative overflow-hidden">
-          <div
-            className="absolute inset-0 opacity-20"
-            style={{
-              backgroundImage:
-                "radial-gradient(circle at top, #ffffff 0%, transparent 55%)",
-            }}
+  const tabBtnClass = (isActive: boolean) =>
+    `flex-1 px-2 py-2.5 md:py-2 text-[11px] font-bold uppercase tracking-wider border transition-all duration-200 ${
+      isActive
+        ? "bg-[#002155] text-white border-[#002155] shadow-sm"
+        : "bg-white text-[#434651] border-[#d9dbe5] hover:border-[#747782] hover:text-[#002155]"
+    }`;
+
+  const renderTabs = (mobile = false) => (
+    <div className={`flex ${mobile ? "w-full" : "grid grid-cols-1 sm:grid-cols-3 gap-2"}`}>
+      <button
+        type="button"
+        onClick={() => setActiveAuthMode("login")}
+        className={mobile ? tabBtnClass(activeAuthMode === "login") : `border px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
+          activeAuthMode === "login"
+            ? "bg-[#002155] text-white border-[#002155]"
+            : "bg-white text-[#002155] border-[#c4c6d3] hover:border-[#747782]"
+        }`}
+      >
+        Login
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveAuthMode("register-student")}
+        className={mobile ? tabBtnClass(activeAuthMode === "register-student") : `border px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
+          activeAuthMode === "register-student"
+            ? "bg-[#002155] text-white border-[#002155]"
+            : "bg-white text-[#002155] border-[#c4c6d3] hover:border-[#747782]"
+        }`}
+      >
+        Student
+      </button>
+      <button
+        type="button"
+        onClick={openFacultyWarningModal}
+        className={mobile ? tabBtnClass(activeAuthMode === "register-faculty") : `border px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
+          activeAuthMode === "register-faculty"
+            ? "bg-[#002155] text-white border-[#002155]"
+            : "bg-white text-[#002155] border-[#c4c6d3] hover:border-[#747782]"
+        }`}
+      >
+        Faculty
+      </button>
+    </div>
+  );
+
+  const benefitItem = (text: string) => (
+    <li className="flex items-start gap-2.5 text-sm md:text-[15px] text-[#434651]">
+      <span className="flex-shrink-0 mt-0.5">
+        <svg className="h-4 w-4 text-emerald-500" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z"/>
+        </svg>
+      </span>
+      <span>{text}</span>
+    </li>
+  );
+
+  // ─── Shared auth form components ───────────────────────────────────────────
+
+  const renderStatusBanner = () => (
+    <>
+      {error ? (
+        <div className="border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm transition-all duration-200">
+          {error}
+        </div>
+      ) : null}
+      {status ? (
+        <div className="border border-green-200 bg-green-50 text-green-700 px-4 py-3 text-sm transition-all duration-200">
+          {status}
+        </div>
+      ) : null}
+    </>
+  );
+
+  const renderLoginForm = () => (
+    <div className="transition-opacity duration-200">
+      {renderGoogleButton()}
+
+      <div className="mt-6 relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-[#d9dbe5]" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-white px-2 text-[#747782] font-bold">
+            or sign in with email / UID
+          </span>
+        </div>
+      </div>
+
+      <form className="mt-6 space-y-4" onSubmit={handleLogin}>
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+            Email or UID
+          </label>
+          <input
+            type="text"
+            required
+            value={identifier}
+            onChange={(event) => setIdentifier(event.target.value)}
+            placeholder="name@tcetmumbai.in or 24-COMPD13-28"
+            className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
           />
-          <div className="relative z-10 space-y-6">
-            <p className="text-xs uppercase tracking-[0.35em] text-[#fd9923]">
-              Secure Access
-            </p>
-            <h1 className="font-headline text-4xl md:text-[44px] leading-tight">
-              Login to the
-              <span className="block text-[#fd9923]">Centre of Excellence</span>
-            </h1>
-            <p className="text-sm text-white/80 font-body leading-relaxed">
-              Established with a vision to bridge the gap between academic
-              theory and industrial application, the TCET Centre of Excellence
-              (CoE) stands as a testament to institutional persistence.
-            </p>
-            <div className="border-t border-white/20 pt-6">
-              <p className="text-xs uppercase tracking-[0.3em] text-white/70">
-                Need an account?
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveAuthMode("register-student");
-                  setShowStudentEmailForm(false);
-                  setNeedsOtp(false);
-                  setError("");
-                  setStatus("");
-                }}
-                className="mt-3 inline-flex text-sm uppercase tracking-[0.2em] text-[#fd9923] hover:text-white"
-              >
-                Register for Access →
-              </button>
-            </div>
+          <p className="text-[11px] text-[#434651]">
+            UID format example: 24-COMPD13-28
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+            Password
+          </label>
+          <input
+            type="password"
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+          />
+          <div className="pt-1 text-right">
+            <Link
+              href="/forgot-password"
+              className="text-[11px] font-bold uppercase tracking-wider text-[#8c4f00] hover:text-[#002155] transition-colors"
+            >
+              Forgot Password?
+            </Link>
           </div>
         </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70 transition-colors duration-200"
+        >
+          {loading ? "Signing in..." : "Login"}
+        </button>
+      </form>
+    </div>
+  );
 
-        <div className="lg:col-span-7 bg-white border border-[#c4c6d3] p-6 md:p-10">
-          <h2 className="font-headline text-2xl md:text-3xl text-[#002155]">
-            Account Login
-          </h2>
-          <p className="mt-2 text-sm text-[#434651] font-body">
-            Sign in with your @tcetmumbai.in email address or your UID. UID
-            format: STARTYEAR-BRANCHDIVISIONROLLNO-ENDYEAR (example:
-            24-COMPD13-28).
-          </p>
+  const renderStudentRegistration = () => (
+    <div className="transition-opacity duration-200">
+      {/* Google Sign-In as primary CTA */}
+      <h3 className="font-headline text-xl md:text-[26px] text-[#002155]">
+        Create your student account
+      </h3>
+      <p className="mt-1 text-sm text-[#747782]">
+        Fastest and recommended method
+      </p>
 
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveAuthMode("login")}
-              className={`border px-3 py-2 text-[11px] font-bold uppercase tracking-wider ${
-                activeAuthMode === "login"
-                  ? "bg-[#002155] text-white border-[#002155]"
-                  : "bg-white text-[#002155] border-[#c4c6d3]"
-              }`}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setUidPreview(null);
-                setShowStudentEmailForm(false);
-                setActiveAuthMode("register-student");
+      <div className="mt-5">
+        <div ref={googleBtnRef} className="w-full min-h-[52px]">
+          {googleBtnWidth > 0 && (
+            <GoogleLogin
+              onSuccess={(response) => {
+                if (response.credential) {
+                  void handleGoogleCredential(response.credential);
+                }
               }}
-              className={`border px-3 py-2 text-[11px] font-bold uppercase tracking-wider ${
-                activeAuthMode === "register-student"
-                  ? "bg-[#002155] text-white border-[#002155]"
-                  : "bg-white text-[#002155] border-[#c4c6d3]"
-              }`}
-            >
-              Register Student
-            </button>
-            <button
-              type="button"
-              onClick={openFacultyWarningModal}
-              className={`border px-3 py-2 text-[11px] font-bold uppercase tracking-wider ${
-                activeAuthMode === "register-faculty"
-                  ? "bg-[#002155] text-white border-[#002155]"
-                  : "bg-white text-[#002155] border-[#c4c6d3]"
-              }`}
-            >
-              Register Faculty
-            </button>
-          </div>
-
-          {error ? (
-            <p className="mt-4 border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">
-              {error}
-            </p>
-          ) : null}
-          {status ? (
-            <p className="mt-4 border border-green-200 bg-green-50 text-green-700 px-4 py-3 text-sm">
-              {status}
-            </p>
-          ) : null}
-
-          {activeAuthMode === "login" ? (
-            <>
-              {renderGoogleButton()}
-
-              <div className="mt-6 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-[#d9dbe5]" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-[#747782] font-bold">
-                    or sign in with email / UID
-                  </span>
-                </div>
-              </div>
-
-              <form className="mt-6 space-y-5" onSubmit={handleLogin}>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Email or UID
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={identifier}
-                    onChange={(event) => setIdentifier(event.target.value)}
-                    placeholder="name@tcetmumbai.in or 24-COMPD13-28"
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                  <p className="text-[11px] text-[#434651]">
-                    UID format example: 24-COMPD13-28
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                  <div className="pt-1 text-right">
-                    <Link
-                      href="/forgot-password"
-                      className="text-[11px] font-bold uppercase tracking-wider text-[#8c4f00] hover:text-[#002155]"
-                    >
-                      Forgot Password?
-                    </Link>
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70"
-                >
-                  {loading ? "Signing in..." : "Login"}
-                </button>
-              </form>
-            </>
-          ) : activeAuthMode === "register-student" ? (
-            <div>
-              <h3 className="font-headline text-xl text-[#002155]">
-                Create your student account.
-              </h3>
-              <p className="mt-1 text-sm text-[#747782]">
-                Fastest and recommended method
-              </p>
-
-              {/* Prominent Google button */}
-              <div className="mt-5">
-                {googleSignInEnabled && googleClientId ? (
-                  <div className="flex justify-center">
-                    <GoogleLogin
-                      onSuccess={(response) => {
-                        if (response.credential) {
-                          void handleGoogleCredential(response.credential);
-                        }
-                      }}
-                      onError={() => {
-                        setError("Google sign-in failed. Please try again.");
-                      }}
-                      theme="outline"
-                      size="large"
-                      text="continue_with"
-                      shape="rectangular"
-                      width="400"
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Benefit points */}
-              <ul className="mt-5 space-y-2">
-                {[
-                  ["Instant registration", "No OTP required"],
-                  ["No password to remember", "Uses your TCET email automatically"],
-                ].map((pair, i) => (
-                  <li key={i} className="flex items-center gap-3 text-sm text-[#747782]">
-                    <span className="flex-shrink-0">
-                      <svg className="h-4 w-4 text-emerald-500" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z"/>
-                      </svg>
-                    </span>
-                    <span className="flex-1">{pair[0]}</span>
-                    <span className="flex-shrink-0 text-[#9ca3af]">·</span>
-                    <span className="flex-1">{pair[1]}</span>
-                  </li>
-                ))}
-              </ul>
-
-              {/* Email fallback */}
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  onClick={() => setShowStudentEmailForm(!showStudentEmailForm)}
-                  className="inline-flex items-center justify-center rounded-md border border-[#c4c6d3] bg-white px-6 py-2.5 text-sm font-medium text-[#434651] hover:bg-[#f8f9fc] hover:border-[#747782] transition-colors"
-                >
-                  Continue with Email
-                </button>
-              </div>
-
-              {/* Slide-down form */}
-              <div
-                className="transition-all duration-300 ease-in-out overflow-hidden"
-                style={{ maxHeight: showStudentEmailForm ? "900px" : "0", opacity: showStudentEmailForm ? 1 : 0 }}
-              >
-                <form className="mt-6 space-y-5" onSubmit={handleRegister}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                        Full Name
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={registerName}
-                        onChange={(event) => setRegisterName(event.target.value)}
-                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                        Institutional Email
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        value={registerEmail}
-                        onChange={(event) => setRegisterEmail(event.target.value)}
-                        placeholder="name@tcetmumbai.in"
-                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                        Phone
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={registerPhone}
-                        onChange={(event) => setRegisterPhone(event.target.value)}
-                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                        Student UID
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={registerUid}
-                        onChange={(event) => setRegisterUid(event.target.value)}
-                        placeholder="24-COMPD13-28"
-                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                      />
-                      <p className="text-[11px] text-[#434651]">
-                        UID format: STARTYEAR-BRANCHDIVISIONROLLNO-ENDYEAR
-                      </p>
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={registerPassword}
-                        onChange={(event) =>
-                          setRegisterPassword(event.target.value)
-                        }
-                        className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={registerLoading}
-                    className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70"
-                  >
-                    {registerLoading ? "Submitting..." : "Register Student"}
-                  </button>
-                </form>
-              </div>
-            </div>
-          ) : (
-            <>
-              {renderGoogleButton()}
-
-              <div className="mt-6 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-[#d9dbe5]" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-[#747782] font-bold">
-                    or register with email
-                  </span>
-                </div>
-              </div>
-
-              <form className="mt-6 space-y-5" onSubmit={handleRegister}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={registerName}
-                    onChange={(event) => setRegisterName(event.target.value)}
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Institutional Email
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={registerEmail}
-                    onChange={(event) => setRegisterEmail(event.target.value)}
-                    placeholder="name@tcetmumbai.in"
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Phone
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={registerPhone}
-                    onChange={(event) => setRegisterPhone(event.target.value)}
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={registerPassword}
-                    onChange={(event) =>
-                      setRegisterPassword(event.target.value)
-                    }
-                    className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155]"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={registerLoading}
-                className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70"
-              >
-                {registerLoading
-                  ? "Submitting..."
-                  : "Register Faculty"}
-              </button>
-            </form>
-            </>
+              onError={() => {
+                setError("Google sign-in failed. Please try again.");
+              }}
+              theme="outline"
+              size="large"
+              text="continue_with"
+              shape="rectangular"
+              width={googleBtnWidth}
+              logo_alignment="center"
+            />
           )}
         </div>
+      </div>
+
+      {/* Benefits — single column on mobile, 2-col on md+ */}
+      <ul className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-y-2.5 gap-x-6">
+        {benefitItem("✓ Instant registration")}
+        {benefitItem("✓ No OTP required")}
+        {benefitItem("✓ No password to remember")}
+        {benefitItem("✓ Uses your TCET email automatically")}
+      </ul>
+
+      {/* Email fallback */}
+      <div className="mt-6">
+        <button
+          type="button"
+          onClick={() => setShowStudentEmailForm(!showStudentEmailForm)}
+          className="w-full inline-flex items-center justify-center gap-2 border border-[#d9dbe5] bg-white px-6 py-3 text-sm font-medium text-[#434651] hover:bg-[#f8f9fc] hover:border-[#747782] transition-all duration-200 rounded-md"
+        >
+          <svg className={`h-4 w-4 transition-transform duration-200 ${showStudentEmailForm ? "rotate-180" : ""}`} viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
+          </svg>
+          Continue with Email
+        </button>
+      </div>
+
+      {/* Slide-down email form */}
+      <div
+        className="overflow-hidden transition-all duration-300 ease-in-out"
+        style={{ maxHeight: showStudentEmailForm ? "800px" : "0", opacity: showStudentEmailForm ? 1 : 0 }}
+      >
+        <form className="mt-5 space-y-4" onSubmit={handleRegister}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                Full Name
+              </label>
+              <input
+                type="text"
+                required
+                value={registerName}
+                onChange={(event) => setRegisterName(event.target.value)}
+                className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                Institutional Email
+              </label>
+              <input
+                type="email"
+                required
+                value={registerEmail}
+                onChange={(event) => setRegisterEmail(event.target.value)}
+                placeholder="name@tcetmumbai.in"
+                className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                Phone
+              </label>
+              <input
+                type="text"
+                required
+                value={registerPhone}
+                onChange={(event) => setRegisterPhone(event.target.value)}
+                className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                Student UID
+              </label>
+              <input
+                type="text"
+                required
+                value={registerUid}
+                onChange={(event) => setRegisterUid(event.target.value)}
+                placeholder="24-COMPD13-28"
+                className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+              />
+              <p className="text-[11px] text-[#434651]">
+                UID format: STARTYEAR-BRANCHDIVISIONROLLNO-ENDYEAR
+              </p>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                value={registerPassword}
+                onChange={(event) => setRegisterPassword(event.target.value)}
+                className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={registerLoading}
+            className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70 transition-colors duration-200"
+          >
+            {registerLoading ? "Submitting..." : "Register Student"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const renderFacultyRegistration = () => (
+    <div className="transition-opacity duration-200">
+      {renderGoogleButton()}
+
+      <div className="mt-6 relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-[#d9dbe5]" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-white px-2 text-[#747782] font-bold">
+            or register with email
+          </span>
+        </div>
+      </div>
+
+      <form className="mt-6 space-y-4" onSubmit={handleRegister}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1.5 md:col-span-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+              Full Name
+            </label>
+            <input
+              type="text"
+              required
+              value={registerName}
+              onChange={(event) => setRegisterName(event.target.value)}
+              className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+              Institutional Email
+            </label>
+            <input
+              type="email"
+              required
+              value={registerEmail}
+              onChange={(event) => setRegisterEmail(event.target.value)}
+              placeholder="name@tcetmumbai.in"
+              className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+              Phone
+            </label>
+            <input
+              type="text"
+              required
+              value={registerPhone}
+              onChange={(event) => setRegisterPhone(event.target.value)}
+              className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-[#434651]">
+              Password
+            </label>
+            <input
+              type="password"
+              required
+              value={registerPassword}
+              onChange={(event) => setRegisterPassword(event.target.value)}
+              className="w-full border border-[#747782] p-3 text-sm outline-none focus:border-[#002155] focus:ring-1 focus:ring-[#002155]/20 transition-all"
+            />
+          </div>
+        </div>
+        <button
+          type="submit"
+          disabled={registerLoading}
+          className="w-full bg-[#002155] text-white py-3 text-xs font-bold uppercase tracking-[0.3em] hover:bg-[#1a438e] disabled:opacity-70 transition-colors duration-200"
+        >
+          {registerLoading ? "Submitting..." : "Register Faculty"}
+        </button>
+      </form>
+    </div>
+  );
+
+  // ─── Rendering ─────────────────────────────────────────────────────────────
+
+  const tabContent = (
+    <div key={activeAuthMode} className="transition-opacity duration-200">
+      <div className="mt-5">
+        {renderStatusBanner()}
+      </div>
+      {activeAuthMode === "login" ? renderLoginForm() : activeAuthMode === "register-student" ? renderStudentRegistration() : renderFacultyRegistration()}
+    </div>
+  );
+
+  const content = (
+    <main className="min-h-screen pt-[100px] md:pt-[120px] pb-16 px-4 md:px-8">
+      <section className="max-w-6xl mx-auto">
+
+        {/* ── Desktop layout (≥768px) ──────────────────────────────────────── */}
+        <div className="hidden md:grid md:grid-cols-12 gap-8">
+          <div className="md:col-span-5 bg-[#002155] text-white p-8 md:p-10 border border-[#0b2a5a] relative overflow-hidden">
+            <div
+              className="absolute inset-0 opacity-20"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle at top, #ffffff 0%, transparent 55%)",
+              }}
+            />
+            <div className="relative z-10 space-y-6">
+              <p className="text-xs uppercase tracking-[0.35em] text-[#fd9923]">
+                Secure Access
+              </p>
+              <h1 className="font-headline text-4xl md:text-[44px] leading-tight">
+                Login to the
+                <span className="block text-[#fd9923]">Centre of Excellence</span>
+              </h1>
+              <p className="text-sm text-white/80 font-body leading-relaxed">
+                Established with a vision to bridge the gap between academic
+                theory and industrial application, the TCET Centre of Excellence
+                (CoE) stands as a testament to institutional persistence.
+              </p>
+              <div className="border-t border-white/20 pt-6">
+                <p className="text-xs uppercase tracking-[0.3em] text-white/70">
+                  Need an account?
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAuthMode("register-student");
+                  }}
+                  className="mt-3 inline-flex text-sm uppercase tracking-[0.2em] text-[#fd9923] hover:text-white transition-colors duration-200"
+                >
+                  Register for Access →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-7 bg-white border border-[#c4c6d3] p-6 md:p-10">
+            <h2 className="font-headline text-2xl md:text-3xl text-[#002155]">
+              Account Login
+            </h2>
+            <p className="mt-2 text-sm text-[#434651] font-body">
+              Sign in with your @tcetmumbai.in email address or your UID.
+            </p>
+
+            <div className="mt-5">
+              {renderTabs(false)}
+            </div>
+
+            {tabContent}
+          </div>
+        </div>
+
+        {/* ── Mobile layout (<768px) ────────────────────────────────────────── */}
+        <div className="md:hidden max-w-sm mx-auto">
+          <div className="bg-white border border-[#d9dbe5] shadow-sm">
+              <div className="px-5 pt-6 pb-4">
+              <h2 className="font-headline text-[32px] leading-tight text-[#002155]">
+                Account Login
+              </h2>
+              <p className="mt-1.5 text-sm md:text-base text-[#434651] font-body">
+                Sign in to the TCET Centre of Excellence.
+              </p>
+            </div>
+
+            <div className="px-5 pb-4">
+              {renderTabs(true)}
+            </div>
+
+              <div className="px-5 pb-6">
+              {tabContent}
+            </div>
+          </div>
+        </div>
+
       </section>
 
       {showFacultyWarningModal ? (
