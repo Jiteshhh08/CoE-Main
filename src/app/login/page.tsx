@@ -835,23 +835,15 @@ export default function LoginPage() {
             </>
           ) : activeAuthMode === "register-student" ? (
             <div>
-              {/* Google recommendation for student registration */}
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-                <p className="flex items-center gap-1.5 text-sm font-bold text-emerald-800">
-                  <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM7 4.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm.25 2.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5z"/>
-                  </svg>
-                  Recommended
-                </p>
-                <ul className="mt-2 space-y-1 text-sm text-emerald-700">
-                  <li className="flex items-center gap-1.5">✓ Instant registration — no OTP</li>
-                  <li className="flex items-center gap-1.5">✓ No password to remember</li>
-                  <li className="flex items-center gap-1.5">✓ Uses your TCET email automatically</li>
-                </ul>
-              </div>
+              <h3 className="font-headline text-xl text-[#002155]">
+                Create your student account.
+              </h3>
+              <p className="mt-1 text-sm text-[#747782]">
+                Fastest and recommended method
+              </p>
 
               {/* Prominent Google button */}
-              <div className="mt-4">
+              <div className="mt-5">
                 {googleSignInEnabled && googleClientId ? (
                   <div className="flex justify-center">
                     <GoogleLogin
@@ -873,29 +865,41 @@ export default function LoginPage() {
                 ) : null}
               </div>
 
-              {/* Separator + email fallback */}
-              <div className="mt-6 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-[#d9dbe5]" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-white px-2 text-[#747782]">
-                    Need another option?
-                  </span>
-                </div>
+              {/* Benefit points */}
+              <ul className="mt-5 space-y-2">
+                {[
+                  ["Instant registration", "No OTP required"],
+                  ["No password to remember", "Uses your TCET email automatically"],
+                ].map((pair, i) => (
+                  <li key={i} className="flex items-center gap-3 text-sm text-[#747782]">
+                    <span className="flex-shrink-0">
+                      <svg className="h-4 w-4 text-emerald-500" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z"/>
+                      </svg>
+                    </span>
+                    <span className="flex-1">{pair[0]}</span>
+                    <span className="flex-shrink-0 text-[#9ca3af]">·</span>
+                    <span className="flex-1">{pair[1]}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Email fallback */}
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowStudentEmailForm(!showStudentEmailForm)}
+                  className="inline-flex items-center justify-center rounded-md border border-[#c4c6d3] bg-white px-6 py-2.5 text-sm font-medium text-[#434651] hover:bg-[#f8f9fc] hover:border-[#747782] transition-colors"
+                >
+                  Continue with Email
+                </button>
               </div>
 
-              {!showStudentEmailForm ? (
-                <div className="mt-4 text-center">
-                  <button
-                    type="button"
-                    onClick={() => setShowStudentEmailForm(true)}
-                    className="text-sm font-medium text-[#8c4f00] hover:text-[#002155] underline underline-offset-2"
-                  >
-                    Continue with Email
-                  </button>
-                </div>
-              ) : (
+              {/* Slide-down form */}
+              <div
+                className="transition-all duration-300 ease-in-out overflow-hidden"
+                style={{ maxHeight: showStudentEmailForm ? "900px" : "0", opacity: showStudentEmailForm ? 1 : 0 }}
+              >
                 <form className="mt-6 space-y-5" onSubmit={handleRegister}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-2 md:col-span-2">
@@ -975,7 +979,7 @@ export default function LoginPage() {
                     {registerLoading ? "Submitting..." : "Register Student"}
                   </button>
                 </form>
-              )}
+              </div>
             </div>
           ) : (
             <>
