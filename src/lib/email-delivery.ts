@@ -121,13 +121,6 @@ export const sendEmail = async ({ to, subject, html, attachments }: SendEmailInp
       html,
       attachments,
     });
-    console.log('[EMAIL_SENT]', {
-      messageId: info.messageId,
-      to,
-      subject,
-      accepted: info.accepted?.length,
-      rejected: info.rejected?.length,
-    });
     return info;
   } catch (err) {
     if (isAuthOrTokenError(err)) {
