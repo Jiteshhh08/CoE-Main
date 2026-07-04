@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
     const { purpose, date, timeSlot, facilities, lab } = parsed.data;
     const [yearStr, monthStr, dayStr] = date.split('-');
-    const bookingDate = new Date(Number(yearStr), Number(monthStr) - 1, Number(dayStr));
+    const bookingDate = new Date(Date.UTC(Number(yearStr), Number(monthStr) - 1, Number(dayStr)));
 
     if (Number.isNaN(bookingDate.getTime())) {
       return errorRes('Validation failed', ['Invalid booking date.'], 400);
