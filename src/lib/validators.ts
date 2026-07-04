@@ -5,7 +5,7 @@ const tcetUidSchema = z
   .string()
   .trim()
   .toUpperCase()
-  .regex(/^\d{2}-[A-Z]+[A-Z]\d{2,3}-\d{2}$/, 'Invalid UID format. Expected e.g. 24-COMPD13-28');
+  .regex(/^\d{2}-[A-Z]+[A-Z]\d{1,3}-\d{2}$/, 'Invalid UID format. Expected e.g. 24-COMPD13-28');
 
 const booleanLikeSchema = z.preprocess((value) => {
   if (typeof value === 'boolean') return value;

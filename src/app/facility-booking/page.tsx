@@ -246,7 +246,7 @@ export default function FacilityBookingPage() {
 
     const parseUidForPreview = (rawUid: string): ParsedUidDetails | null => {
       const normalizedUid = rawUid.trim().toUpperCase();
-      const match = normalizedUid.match(/^(\d{2})-([A-Z]+)([A-Z])(\d{2,3})-(\d{2})$/);
+      const match = normalizedUid.match(/^(\d{2})-([A-Z]+)([A-Z])(\d{1,3})-(\d{2})$/);
       if (!match) return null;
 
       const [, startYearShort, branchPart, division, rollNo, endYearShort] = match;
