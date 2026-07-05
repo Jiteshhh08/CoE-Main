@@ -126,6 +126,8 @@ export default function Navbar({ user }: NavbarProps) {
     ...(canSeeIndustryInternshipPortal ? [{ label: "Internship Dashboard", href: "/industry-internship/dashboard" }] : []),
     ...(canSeeStudentInternshipPortal ? [{ label: "My Internship Dashboard", href: "/student-internship" }] : []),
     ...(canSeeProjectHosting ? [{ label: "Project Hosting", href: "/project-hosting" }] : []),
+    ...(user ? [{ label: "Project Dashboard", href: "https://showcase.tcetcercd.in/showcase" }] : []),
+    ...(user ? [{ label: "Coding Platform", href: "https://code.tcetcercd.in" }] : []),
     ...(canSeeAdminPanel ? [{ label: "Hosting Requests", href: "/admin/hosting-requests" }] : []),
     ...(canSeeAdminPanel ? [{ label: "Admin Panel", href: "/admin" }] : []),
   ];
