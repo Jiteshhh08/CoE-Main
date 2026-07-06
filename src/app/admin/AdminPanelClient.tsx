@@ -2962,125 +2962,7 @@ export default function AdminPanelClient({
         </p>
       ) : null}
 
-      {/* Impersonation UI */}
-      <div className="mb-8 border border-gray-200 bg-white p-4 md:p-6">
-        <h2 className="text-lg font-bold text-[#002155] mb-4">Impersonate a User</h2>
-
-        <div className="relative mb-4">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setSearchPage(1); }}
-            placeholder="Search by name, email, or UID..."
-            className="w-full border border-gray-300 px-3 py-2 pr-10 text-sm"
-          />
-          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
-        </div>
-
-        {isSearching ? <p className="text-sm text-gray-500">Searching...</p> : null}
-
-        {searchResults.length > 0 ? (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-left">
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium">Role</th>
-                    <th className="px-3 py-2 font-medium">UID</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchResults.map((u) => (
-                    <tr key={u.id} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="px-3 py-2">{u.name}</td>
-                      <td className="px-3 py-2 text-gray-600">{u.email}</td>
-                      <td className="px-3 py-2">{u.role}</td>
-                      <td className="px-3 py-2 text-gray-600">{u.uid || '-'}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-green-700 bg-green-100 px-2 py-0.5 text-xs rounded">{u.status}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => handleImpersonate(u)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 text-xs font-medium rounded"
-                        >
-                          Impersonate
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {searchTotalPages > 1 ? (
-              <div className="flex items-center gap-2 mt-3 text-sm">
-                <button
-                  disabled={searchPage <= 1}
-                  onClick={() => setSearchPage((p) => Math.max(1, p - 1))}
-                  className="px-2 py-1 border disabled:opacity-50"
-                >
-                  Prev
-                </button>
-                <span>Page {searchPage} of {searchTotalPages} ({searchTotal} results)</span>
-                <button
-                  disabled={searchPage >= searchTotalPages}
-                  onClick={() => setSearchPage((p) => p + 1)}
-                  className="px-2 py-1 border disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        {searchQuery.length > 0 && !isSearching && searchResults.length === 0 ? (
-          <p className="text-sm text-gray-500">No users found matching &ldquo;{searchQuery}&rdquo;</p>
-        ) : null}
-
-        {activeSessions.length > 0 ? (
-          <div className="mt-4 border-t border-gray-200 pt-4">
-            <h3 className="text-sm font-bold text-[#002155] mb-2">Active Sessions</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-left">
-                    <th className="px-3 py-2 font-medium">Target</th>
-                    <th className="px-3 py-2 font-medium">Started</th>
-                    <th className="px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeSessions.map((s) => (
-                    <tr key={s.sessionId} className="border-t border-gray-100">
-                      <td className="px-3 py-2">{s.targetUser.name}</td>
-                      <td className="px-3 py-2 text-gray-600">{new Date(s.startedAt).toLocaleString()}</td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => { window.location.href = '/'; }}
-                          className="text-red-600 hover:text-red-800 text-xs font-medium"
-                        >
-                          Resume Impersonation
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
-
-        {impersonationError ? (
-          <div className="mt-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">{impersonationError}</div>
-        ) : null}
-      </div>
-
+      {/* Impersonation UI — placed at end of Faculty tab */}
       {showConfirmModal && selectedTarget ? (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
           <div className="bg-white max-w-md w-full mx-4 p-6 shadow-xl">
@@ -3111,6 +2993,8 @@ export default function AdminPanelClient({
           </div>
         </div>
       ) : null}
+
+
 
       <section className="mb-8 flex flex-wrap gap-2">
         <button
@@ -4539,6 +4423,40 @@ export default function AdminPanelClient({
           </div>
         </div>
       ) : null}
+
+      {/* Impersonate a User */}
+      <div className="mb-8 border border-gray-200 bg-white p-4 md:p-6">
+        <h2 className="text-lg font-bold text-[#002155] mb-4">Impersonate a User</h2>
+        <div className="relative mb-4">
+          <input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setSearchPage(1); }} placeholder="Search by name, email, or UID..." className="w-full border border-gray-300 px-3 py-2 pr-10 text-sm" />
+          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+        </div>
+        {isSearching ? <p className="text-sm text-gray-500">Searching...</p> : null}
+        {searchResults.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-gray-50 text-left"><th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">Email</th><th className="px-3 py-2 font-medium">Role</th><th className="px-3 py-2 font-medium">UID</th><th className="px-3 py-2 font-medium">Status</th><th className="px-3 py-2 font-medium">Action</th></tr></thead>
+                <tbody>{searchResults.map((u) => (<tr key={u.id} className="border-t border-gray-100 hover:bg-gray-50"><td className="px-3 py-2">{u.name}</td><td className="px-3 py-2 text-gray-600">{u.email}</td><td className="px-3 py-2">{u.role}</td><td className="px-3 py-2 text-gray-600">{u.uid || '-'}</td><td className="px-3 py-2"><span className="text-green-700 bg-green-100 px-2 py-0.5 text-xs rounded">{u.status}</span></td><td className="px-3 py-2"><button onClick={() => handleImpersonate(u)} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 text-xs font-medium rounded">Impersonate</button></td></tr>))}</tbody>
+              </table>
+            </div>
+            {searchTotalPages > 1 ? (<div className="flex items-center gap-2 mt-3 text-sm"><button disabled={searchPage <= 1} onClick={() => setSearchPage((p) => Math.max(1, p - 1))} className="px-2 py-1 border disabled:opacity-50">Prev</button><span>Page {searchPage} of {searchTotalPages} ({searchTotal} results)</span><button disabled={searchPage >= searchTotalPages} onClick={() => setSearchPage((p) => p + 1)} className="px-2 py-1 border disabled:opacity-50">Next</button></div>) : null}
+          </>
+        ) : null}
+        {searchQuery.length > 0 && !isSearching && searchResults.length === 0 ? (<p className="text-sm text-gray-500">No users found matching &ldquo;{searchQuery}&rdquo;</p>) : null}
+        {activeSessions.length > 0 ? (
+          <div className="mt-4 border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-bold text-[#002155] mb-2">Active Sessions</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-gray-50 text-left"><th className="px-3 py-2 font-medium">Target</th><th className="px-3 py-2 font-medium">Started</th><th className="px-3 py-2 font-medium">Actions</th></tr></thead>
+                <tbody>{activeSessions.map((s) => (<tr key={s.sessionId} className="border-t border-gray-100"><td className="px-3 py-2">{s.targetUser.name}</td><td className="px-3 py-2 text-gray-600">{new Date(s.startedAt).toLocaleString()}</td><td className="px-3 py-2"><button onClick={() => window.location.href = '/'} className="text-red-600 hover:text-red-800 text-xs font-medium">Resume</button></td></tr>))}</tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+        {impersonationError ? (<div className="mt-3 bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">{impersonationError}</div>) : null}
+      </div>
 
       </>
 
