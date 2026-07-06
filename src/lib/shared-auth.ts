@@ -21,12 +21,17 @@ const roleMap: Record<string, SharedTokenPayload['role']> = {
   INDUSTRY_PARTNER: 'INDUSTRY',
 };
 
-export const buildSharedTokenPayload = (user: {
-  email: string;
-  role: string;
-  status: string;
-  name?: string;
-}): SharedTokenPayload => {
+export const buildSharedTokenPayload = (
+  user: {
+    email: string;
+    role: string;
+    status: string;
+    name?: string;
+  },
+  impersonation?: {
+    sessionId: string;
+  }
+): SharedTokenPayload => {
   const mappedRole = roleMap[user.role];
   if (!mappedRole) {
     throw new Error(`Unsupported role for shared auth token: ${user.role}`);
@@ -39,5 +44,9 @@ export const buildSharedTokenPayload = (user: {
     name,
     role: mappedRole,
     status: user.status as SharedTokenPayload['status'],
+    ...(impersonation && {
+      isImpersonating: true,
+      impersonation: { sessionId: impersonation.sessionId },
+    }),
   };
 };

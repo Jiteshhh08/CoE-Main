@@ -4,10 +4,12 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 
 import Navbar from "@/components/Navbar";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
 import Footer from "@/components/Footer";
 import { ProfileCompletionModal } from "@/components/ProfileCompletionModal";
 import { FacultyProfileCompletionModal } from "@/components/FacultyProfileCompletionModal";
 import { verifyAccessToken } from "@/lib/jwt";
+import prisma from "@/lib/prisma";
 import { ToastProvider } from "@/components/ToastProvider";
 
 export const metadata: Metadata = {
@@ -23,7 +25,13 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const token = cookieStore.get("accessToken")?.value;
 
-  let user: { name: string; email: string; role: string; uid?: string } | null = null;
+  let user: { name: string; email: string; role: string; uid?: string; isImpersonating?: boolean } | null = null;
+  let impersonationBannerData: {
+    isImpersonating: boolean;
+    impersonatedBy: { name: string; email: string } | null;
+    impersonatingAs: { name: string; email: string; role: string; uid?: string | null } | null;
+  } | null = null;
+
   if (token) {
     try {
       const payload = verifyAccessToken(token);
@@ -33,6 +41,46 @@ export default async function RootLayout({
         role: payload.role,
         uid: payload.uid,
       };
+
+      // Detect impersonation from token
+      if (payload.isImpersonating && payload.impersonation?.sessionId) {
+        try {
+          const session = await prisma.impersonationSession.findUnique({
+            where: { id: payload.impersonation.sessionId },
+          });
+
+          if (session) {
+            const [adminUser, targetUser] = await Promise.all([
+              prisma.user.findUnique({
+                where: { id: session.adminId },
+                select: { name: true, email: true },
+              }),
+              prisma.user.findUnique({
+                where: { id: session.targetUserId },
+                select: { name: true, email: true, role: true, uid: true },
+              }),
+            ]);
+
+            impersonationBannerData = {
+              isImpersonating: true,
+              impersonatedBy: adminUser
+                ? { name: adminUser.name, email: adminUser.email }
+                : null,
+              impersonatingAs: targetUser
+                ? {
+                    name: targetUser.name,
+                    email: targetUser.email,
+                    role: targetUser.role,
+                    uid: targetUser.uid,
+                  }
+                : null,
+            };
+            user.isImpersonating = true;
+          }
+        } catch {
+          // Session lookup failed — continue without impersonation data
+        }
+      }
     } catch {
       user = null;
     }
@@ -52,6 +100,11 @@ export default async function RootLayout({
       </head>
       <body className="bg-surface font-body text-on-surface">
         <ToastProvider>
+          <ImpersonationBanner
+            isImpersonating={impersonationBannerData?.isImpersonating ?? false}
+            impersonatedBy={impersonationBannerData?.impersonatedBy ?? null}
+            impersonatingAs={impersonationBannerData?.impersonatingAs ?? null}
+          />
           <Navbar user={user} />
           {children}
           {user?.role === 'STUDENT' && <ProfileCompletionModal />}

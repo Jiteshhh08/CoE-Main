@@ -16,6 +16,7 @@ type NavbarProps = {
     email: string;
     role: string;
     uid?: string;
+    isImpersonating?: boolean;
   } | null;
 };
 
@@ -297,13 +298,21 @@ export default function Navbar({ user }: NavbarProps) {
                   <span className="max-w-[120px] truncate text-[10px] font-bold uppercase tracking-wider">
                     {user?.name || "Account"}
                   </span>
+                  {user?.isImpersonating ? (
+                    <span className="text-red-400 text-[9px] font-bold uppercase ml-1">IMPERSONATING</span>
+                  ) : null}
                 </button>
                 {isUserMenuOpen ? (
                   <div className="absolute right-0 top-[110%] w-[300px] border border-[#c4c6d3] bg-white p-3 shadow-lg">
                     <p className="text-[10px] uppercase tracking-widest text-[#747782]">Signed In</p>
                     <p className="mt-1 text-sm font-bold text-[#002155]">{user?.name}</p>
                     <p className="mt-1 text-xs text-[#434651]">{user?.email}</p>
-                    <p className="mt-1 text-xs text-[#434651]">Role: {user?.role}</p>
+                    <p className="mt-1 text-xs text-[#434651]">
+                      Role: {user?.role}
+                      {user?.isImpersonating ? (
+                        <span className="text-red-600 text-[10px] font-bold uppercase ml-2">IMPERSONATING</span>
+                      ) : null}
+                    </p>
                     {user?.uid ? <p className="mt-1 text-xs text-[#434651]">UID: {user.uid}</p> : null}
 
                     <div className="mt-3 grid grid-cols-1 gap-2">
@@ -441,7 +450,12 @@ export default function Navbar({ user }: NavbarProps) {
               <p className="text-[10px] uppercase tracking-widest text-white/70">Signed In</p>
               <p className="mt-1 text-sm font-bold">{user?.name}</p>
               <p className="mt-1 text-xs text-white/80">{user?.email}</p>
-              <p className="mt-1 text-xs text-white/80">Role: {user?.role}</p>
+              <p className="mt-1 text-xs text-white/80">
+                Role: {user?.role}
+                {user?.isImpersonating ? (
+                  <span className="text-red-300 text-[10px] font-bold uppercase ml-2">IMPERSONATING</span>
+                ) : null}
+              </p>
               {user?.uid ? <p className="mt-1 text-xs text-white/80">UID: {user.uid}</p> : null}
             </div>
           ) : null}

@@ -499,6 +499,12 @@ export const innovationProgramUpdateSchema = z.object({
   removeNoticeFile: z.boolean().optional(),
 });
 
+// ─── Impersonation Validators ───
+
+export const impersonateStartSchema = z.object({
+  targetId: z.number().int().positive("Target user ID is required."),
+});
+
 export const innovationBulkClaimDecisionSchema = z.object({
   stage: z.enum(['SCREENING', 'JUDGING']),
   eventId: z.coerce.number().int().positive().optional(),

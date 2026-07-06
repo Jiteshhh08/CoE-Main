@@ -21,6 +21,12 @@ export interface TokenPayload {
   email: string;
   uid?: string;
   industryId?: number | null;
+  // New optional fields — present ONLY during impersonation
+  isImpersonating?: true;
+  impersonation?: {
+    /** UUID linking to ImpersonationSession for audit + restoration */
+    sessionId: string;
+  };
 }
 
 export interface SharedTokenPayload {
@@ -28,6 +34,12 @@ export interface SharedTokenPayload {
   name: string;
   role: 'ADMIN' | 'FACULTY' | 'STUDENT' | 'INDUSTRY';
   status: 'ACTIVE' | 'PENDING' | 'REJECTED';
+  // New optional fields — present ONLY during impersonation
+  isImpersonating?: true;
+  impersonation?: {
+    /** UUID linking to ImpersonationSession for audit */
+    sessionId: string;
+  };
 }
 
 export const generateAccessToken = (payload: TokenPayload): string => {
@@ -49,3 +61,24 @@ export const verifyAccessToken = (token: string): TokenPayload => {
 export const verifyRefreshToken = (token: string): TokenPayload => {
   return jwt.verify(token, REFRESH_SECRET) as TokenPayload;
 };
+
+/**
+ * Build a TokenPayload for an impersonation session.
+ * The payload carries the TARGET user's identity so that
+ * authenticate() and authorize() evaluate as the target user.
+ */
+export function buildImpersonationAccessTokenPayload(
+  targetUser: { id: number; role: string; name: string; email: string; uid?: string | null; industryId?: number | null },
+  sessionId: string
+): TokenPayload {
+  return {
+    id: targetUser.id,
+    role: targetUser.role,
+    name: targetUser.name,
+    email: targetUser.email,
+    ...(targetUser.uid && { uid: targetUser.uid }),
+    ...(targetUser.industryId != null && { industryId: targetUser.industryId }),
+    isImpersonating: true,
+    impersonation: { sessionId },
+  };
+}

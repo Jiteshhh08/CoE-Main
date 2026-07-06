@@ -79,6 +79,12 @@ enum EventStatus {
   CLOSED
 }
 
+enum ImpersonationStatus {
+  ACTIVE
+  ENDED
+  EXPIRED
+}
+
 enum ApplicationStatus {
   SUBMITTED
   SELECTED
@@ -748,6 +754,26 @@ model Event {
   createdAt        DateTime  @default(now())
 
   @@map("events")
+}
+
+model ImpersonationSession {
+  id              String               @id @default(uuid())
+  adminId         Int
+  targetUserId    Int
+  status          ImpersonationStatus  @default(ACTIVE)
+  startedAt       DateTime             @default(now())
+  endedAt         DateTime?
+  durationSeconds Int?
+  ipAddress       String?              @db.VarChar(45)
+  userAgent       String?              @db.Text
+  metadata        Json?
+
+  // Performance indexes
+  @@index([adminId, status])
+  @@index([adminId, startedAt])
+  @@index([targetUserId, startedAt])
+  @@index([status, startedAt])
+  @@map("impersonation_sessions")
 }
 
 model Announcement {
