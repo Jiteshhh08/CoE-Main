@@ -86,6 +86,10 @@ export default async function RootLayout({
     }
   }
 
+  const isPrincipalUser = user?.email
+    ? (process.env.PRINCIPAL_EMAILS ?? '').split(',').map(e => e.trim().toLowerCase()).includes(user.email.toLowerCase())
+    : false;
+
   return (
     <html lang="en" className="scroll-smooth">
       <head>
@@ -108,7 +112,7 @@ export default async function RootLayout({
           <Navbar user={user} />
           {children}
           {user?.role === 'STUDENT' && <ProfileCompletionModal />}
-          {user?.role === 'FACULTY' && <FacultyProfileCompletionModal />}
+          {user?.role === 'FACULTY' && !isPrincipalUser && <FacultyProfileCompletionModal />}
           <Footer />
         </ToastProvider>
         {process.env.NEXT_PUBLIC_GA_ID && (
