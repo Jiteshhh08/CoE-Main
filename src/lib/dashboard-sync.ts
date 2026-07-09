@@ -23,6 +23,8 @@
 const DASHBOARD_URL = process.env.DASHBOARD_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
 
+import prisma from '@/lib/prisma';
+
 export type SyncUserPayload = {
   email: string;
   name: string | null;
@@ -31,6 +33,7 @@ export type SyncUserPayload = {
   uid?: string | null;
   status: string;
   isActive?: boolean;
+  isHod?: boolean;
 };
 
 /**
@@ -68,6 +71,7 @@ export async function syncDashboardUser(user: SyncUserPayload): Promise<void> {
         uid: user.uid ?? null,
         status: user.status,
         isActive: user.isActive ?? true,
+        isHod: user.isHod ?? false,
       }),
       // 5-second timeout so the OT verify flow never hangs
       signal: AbortSignal.timeout(5000),
@@ -89,4 +93,33 @@ export async function syncDashboardUser(user: SyncUserPayload): Promise<void> {
     // Fire-and-forget: log but never throw
     console.error(`[dashboard-sync] Network error for ${user.email}:`, err);
   }
+}
+
+/**
+ * Sync a faculty user to the Project Dashboard.
+ * Loads the user + FacultyProfile and sends the complete payload.
+ * Every sync event (approval, HOD assignment, dept change) must call this.
+ */
+export async function syncFaculty(userId: number): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true, role: true, uid: true, status: true },
+  });
+  if (!user) return;
+
+  const facultyProfile = await prisma.facultyProfile.findUnique({
+    where: { userId },
+    select: { department: true, isHod: true },
+  });
+
+  return syncDashboardUser({
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    department: facultyProfile?.department ?? null,
+    uid: user.uid,
+    status: user.status,
+    isActive: user.status === 'ACTIVE',
+    isHod: facultyProfile?.isHod ?? false,
+  });
 }

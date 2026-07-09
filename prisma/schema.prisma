@@ -355,6 +355,7 @@ model FacultyProfile {
   resumeUrl    String?
   profileLinks Json?
   isComplete   Boolean  @default(false)
+  isHod        Boolean  @default(false)
   updatedAt    DateTime @updatedAt
 
   @@map("faculty_profiles")

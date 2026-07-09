@@ -43,6 +43,8 @@ type FacultyUser = {
   isVerified: boolean;
   status: string;
   createdAt: string;
+  isHod?: boolean;
+  department?: string | null;
 };
 
 type AdminUserDetail = {
@@ -829,6 +831,10 @@ export default function AdminPanelClient({
 
   const [busyBookingId, setBusyBookingId] = useState<number | null>(null);
   const [busyFacultyId, setBusyFacultyId] = useState<number | null>(null);
+  const [hodModalUserId, setHodModalUserId] = useState<number | null>(null);
+  const [hodModalDepartment, setHodModalDepartment] = useState("");
+  const [hodStatusMap, setHodStatusMap] = useState<Record<number, { isHod: boolean; department: string | null }>>({});
+  const [busyHodUserId, setBusyHodUserId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [heroTitle, setHeroTitle] = useState("");
@@ -2090,6 +2096,57 @@ export default function AdminPanelClient({
       setErrorMessage(err instanceof Error ? err.message : "Could not reject booking.");
     } finally {
       setBusyBookingId(null);
+    }
+  };
+
+  const handleOpenHodModal = (userId: number) => {
+    const current = hodStatusMap[userId];
+    setHodModalDepartment(current?.department ?? "");
+    setHodModalUserId(userId);
+  };
+
+  const handleCloseHodModal = () => {
+    setHodModalUserId(null);
+    setHodModalDepartment("");
+  };
+
+  const handleAssignHod = async () => {
+    if (hodModalUserId === null) return;
+    const department = hodModalDepartment.trim();
+    if (!department) return;
+    try {
+      setErrorMessage("");
+      setStatusMessage("");
+      setBusyHodUserId(hodModalUserId);
+      await apiCall(`/api/admin/faculty/${hodModalUserId}/hod`, {
+        method: "PATCH",
+        body: JSON.stringify({ isHod: true, department }),
+      });
+      setHodStatusMap((prev) => ({ ...prev, [hodModalUserId]: { isHod: true, department } }));
+      setStatusMessage(`HOD assigned for department: ${department}`);
+      handleCloseHodModal();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Could not assign HOD.");
+    } finally {
+      setBusyHodUserId(null);
+    }
+  };
+
+  const handleRemoveHod = async (userId: number) => {
+    try {
+      setErrorMessage("");
+      setStatusMessage("");
+      setBusyHodUserId(userId);
+      await apiCall(`/api/admin/faculty/${userId}/hod`, {
+        method: "PATCH",
+        body: JSON.stringify({ isHod: false }),
+      });
+      setHodStatusMap((prev) => ({ ...prev, [userId]: { isHod: false, department: null } }));
+      setStatusMessage("HOD role removed.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Could not remove HOD.");
+    } finally {
+      setBusyHodUserId(null);
     }
   };
 
@@ -4183,6 +4240,7 @@ export default function AdminPanelClient({
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">UID</th>
                     <th className="px-4 py-3">Role</th>
+                    <th className="px-4 py-3">HOD</th>
                     <th className="px-4 py-3">Action</th>
                   </tr>
                 </thead>
@@ -4195,6 +4253,36 @@ export default function AdminPanelClient({
                       <td className="px-4 py-3 text-gray-700">{user.email}</td>
                       <td className="px-4 py-3 text-gray-700">{user.uid || "-"}</td>
                       <td className="px-4 py-3 text-gray-700">{user.role}</td>
+                      <td className="px-4 py-3">
+                        {user.role === "FACULTY" ? (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-2 h-2 rounded-full ${hodStatusMap[user.id]?.isHod ? "bg-green-500" : "bg-gray-300"}`} />
+                            {hodStatusMap[user.id]?.isHod ? (
+                              <span className="text-xs text-green-700 font-medium">HOD</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                            {hodStatusMap[user.id]?.isHod ? (
+                              <button
+                                onClick={() => handleRemoveHod(user.id)}
+                                disabled={busyHodUserId === user.id}
+                                className="text-xs text-[#ba1a1a] underline disabled:opacity-50"
+                              >
+                                {busyHodUserId === user.id ? "..." : "Remove"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleOpenHodModal(user.id)}
+                                className="text-xs text-[#0b2c5f] underline"
+                              >
+                                Assign
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => handleOpenUserDetails(user.id)}
@@ -4258,6 +4346,62 @@ export default function AdminPanelClient({
           </p>
         </div>
       </section>
+
+      {hodModalUserId !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#00122f]/70 p-4">
+          <div className="w-full max-w-md border border-[#c4c6d3] bg-white">
+            <div className="flex items-center justify-between border-b border-[#e3e2df] px-5 py-4">
+              <h3 className="font-headline text-lg text-[#002155]">Assign HOD</h3>
+              <button onClick={handleCloseHodModal} className="border border-[#c4c6d3] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[#434651]">
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs uppercase tracking-widest text-[#434651] font-label mb-2">Department</label>
+                <select
+                  value={hodModalDepartment}
+                  onChange={(e) => setHodModalDepartment(e.target.value)}
+                  className="w-full border border-[#c4c6d3] px-3 py-2 text-sm"
+                >
+                  <option value="">Select department...</option>
+                  {[
+                    "B.E. Computer Engineering",
+                    "B.E. Information Technology",
+                    "B.E. Electronics & Tele-Communication",
+                    "B.E. Electronics and Computer Science",
+                    "B.E. Mechanical Engineering",
+                    "B.E. Civil Engineering",
+                    "B.E. Computer Science and Engineering (Cyber Security)",
+                    "B.E. Mechanical and Mechatronics Engineering (Additive Manufacturing)",
+                    "B.Tech - Artificial Intelligence & Machine Learning",
+                    "B.Tech - Artificial Intelligence & Data Science",
+                    "B.Tech - Internet of Things (IoT)",
+                    "B.Tech - Computer Science & Engineering (CSE-IOT)",
+                  ].map((dept) => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={handleCloseHodModal}
+                  className="border border-[#c4c6d3] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#434651]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAssignHod}
+                  disabled={busyHodUserId !== null || !hodModalDepartment.trim()}
+                  className="bg-[#002155] text-white px-4 py-2 text-xs font-bold uppercase tracking-wider disabled:bg-opacity-50"
+                >
+                  {busyHodUserId !== null ? "Assigning..." : "Assign HOD"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {selectedUserDetailId !== null ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#00122f]/70 p-4 md:p-8 overflow-y-auto">

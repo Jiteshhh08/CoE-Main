@@ -547,3 +547,26 @@ export const innovationBulkClaimDecisionSchema = z.object({
     }
   });
 });
+
+// ─── Department Validation ───
+
+export const DEPARTMENT_LIST = [
+  "B.E. Computer Engineering",
+  "B.E. Information Technology",
+  "B.E. Electronics & Tele-Communication",
+  "B.E. Electronics and Computer Science",
+  "B.E. Mechanical Engineering",
+  "B.E. Civil Engineering",
+  "B.E. Computer Science and Engineering (Cyber Security)",
+  "B.E. Mechanical and Mechatronics Engineering (Additive Manufacturing)",
+  "B.Tech - Artificial Intelligence & Machine Learning",
+  "B.Tech - Artificial Intelligence & Data Science",
+  "B.Tech - Internet of Things (IoT)",
+  "B.Tech - Computer Science & Engineering (CSE-IOT)",
+] as const;
+
+export type Department = (typeof DEPARTMENT_LIST)[number];
+
+export function isValidDepartment(value: string): value is Department {
+  return DEPARTMENT_LIST.includes(value as Department);
+}

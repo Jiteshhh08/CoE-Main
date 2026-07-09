@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { successRes, errorRes, authenticate, authorize } from '@/lib/api-helpers';
 import { sendFacultyApprovalEmail } from '@/lib/mailer';
-import { syncDashboardUser } from '@/lib/dashboard-sync';
+import { syncFaculty } from '@/lib/dashboard-sync';
 
 // PATCH /api/admin/faculty/[id]/approve
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -28,14 +28,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       console.error('Faculty approval email failed:', emailErr);
     }
 
-    await syncDashboardUser({
-      email: faculty.email,
-      name: faculty.name,
-      role: faculty.role,
-      uid: faculty.uid,
-      status: 'ACTIVE',
-      isActive: true,
-    });
+    void syncFaculty(faculty.id);
 
     return successRes(null, 'Faculty account approved.');
   } catch (err) {
