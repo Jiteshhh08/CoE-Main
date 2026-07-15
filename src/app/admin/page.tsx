@@ -45,6 +45,7 @@ type AdminUser = {
   isVerified: boolean;
   status: string;
   createdAt: string;
+  facultyProfile?: { isHod: boolean; department: string | null } | null;
 };
 
 type Stats = {

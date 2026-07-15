@@ -43,8 +43,7 @@ type FacultyUser = {
   isVerified: boolean;
   status: string;
   createdAt: string;
-  isHod?: boolean;
-  department?: string | null;
+  facultyProfile?: { isHod: boolean; department: string | null } | null;
 };
 
 type AdminUserDetail = {
@@ -833,7 +832,15 @@ export default function AdminPanelClient({
   const [busyFacultyId, setBusyFacultyId] = useState<number | null>(null);
   const [hodModalUserId, setHodModalUserId] = useState<number | null>(null);
   const [hodModalDepartment, setHodModalDepartment] = useState("");
-  const [hodStatusMap, setHodStatusMap] = useState<Record<number, { isHod: boolean; department: string | null }>>({});
+  const [hodStatusMap, setHodStatusMap] = useState<Record<number, { isHod: boolean; department: string | null }>>(() => {
+    const map: Record<number, { isHod: boolean; department: string | null }> = {};
+    for (const user of users) {
+      if (user.facultyProfile) {
+        map[user.id] = { isHod: user.facultyProfile.isHod, department: user.facultyProfile.department };
+      }
+    }
+    return map;
+  });
   const [busyHodUserId, setBusyHodUserId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
