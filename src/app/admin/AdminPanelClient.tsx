@@ -297,6 +297,11 @@ const getRubricTotalScore = (rubrics: HackathonRubrics) => {
   return rubricFieldConfig.reduce((sum, field) => sum + rubrics[field.key], 0);
 };
 
+      const BRANCH_CODES = [
+        'AIDS', 'AIML', 'BVOC', 'CIVIL', 'COMP', 'CSE',
+        'ECS', 'EXTC', 'IOT', 'IT', 'MCA', 'MECH', 'MME',
+      ] as const;
+
 type EventProblemInput = {
   title: string;
   description: string;
@@ -890,13 +895,15 @@ export default function AdminPanelClient({
   const [emailPage, setEmailPage] = useState(1);
   const [emailPageSize, setEmailPageSize] = useState(25);
   const [emailFailedBadgeCount, setEmailFailedBadgeCount] = useState<number | null>(null);
-  const [customEmailScope, setCustomEmailScope] = useState<"CUSTOM" | "STUDENTS" | "FACULTY" | "ALL_USERS">("CUSTOM");
+  const [customEmailScope, setCustomEmailScope] = useState<"CUSTOM" | "STUDENTS" | "FACULTY" | "ALL_USERS" | "STUDENTS_BY_BRANCH">("CUSTOM");
   const [customEmailRecipients, setCustomEmailRecipients] = useState("");
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [customEmailMode, setCustomEmailMode] = useState<"IMMEDIATE" | "BULK">("IMMEDIATE");
   const [sendingCustomEmail, setSendingCustomEmail] = useState(false);
   const [customEmailAttachments, setCustomEmailAttachments] = useState<File[]>([]);
+  const [customEmailBranch, setCustomEmailBranch] = useState("");
+  const [customEmailYear, setCustomEmailYear] = useState("");
 
   const [ticketIdInput, setTicketIdInput] = useState("");
   const [ticketVerifying, setTicketVerifying] = useState(false);
@@ -1379,6 +1386,11 @@ export default function AdminPanelClient({
       return;
     }
 
+    if (customEmailScope === "STUDENTS_BY_BRANCH" && !customEmailBranch) {
+      setErrorMessage("Please select a branch.");
+      return;
+    }
+
     if (customEmailAttachments.length > 0 && customEmailMode === "BULK") {
       setErrorMessage("Attachments are only supported with immediate delivery.");
       return;
@@ -1402,6 +1414,10 @@ export default function AdminPanelClient({
       if (customEmailScope === "CUSTOM") {
         formData.set("emails", customEmailRecipients);
       }
+      if (customEmailScope === "STUDENTS_BY_BRANCH") {
+        formData.set("branch", customEmailBranch);
+        formData.set("year", customEmailYear);
+      }
       customEmailAttachments.forEach((file) => {
         formData.append("attachments", file, file.name);
       });
@@ -1424,6 +1440,8 @@ export default function AdminPanelClient({
       setCustomEmailScope("CUSTOM");
       setCustomEmailMode("IMMEDIATE");
       setCustomEmailAttachments([]);
+      setCustomEmailBranch("");
+      setCustomEmailYear("");
 
       if (activeView === "operations" && operationsTab === "emails") {
         void handleRefreshEmailSnapshot();
@@ -3442,6 +3460,8 @@ export default function AdminPanelClient({
           <span className="text-[11px] uppercase tracking-widest text-[#8c4f00] font-label">
             {customEmailScope === "CUSTOM"
               ? `${customEmailRecipientList.length} recipient(s)`
+              : customEmailScope === "STUDENTS_BY_BRANCH"
+              ? `Recipients: ${customEmailBranch}${customEmailYear ? ` (${customEmailYear})` : ''}`
               : "Recipient list resolved on send"}
           </span>
         </div>
@@ -3450,13 +3470,14 @@ export default function AdminPanelClient({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <select
               value={customEmailScope}
-              onChange={(e) => setCustomEmailScope(e.target.value as "CUSTOM" | "STUDENTS" | "FACULTY" | "ALL_USERS")}
+              onChange={(e) => setCustomEmailScope(e.target.value as "CUSTOM" | "STUDENTS" | "FACULTY" | "ALL_USERS" | "STUDENTS_BY_BRANCH")}
               className="border border-[#c4c6d3] px-3 py-2 text-sm"
             >
               <option value="CUSTOM">Specific emails</option>
               <option value="STUDENTS">All students</option>
               <option value="FACULTY">All teachers</option>
               <option value="ALL_USERS">All users</option>
+              <option value="STUDENTS_BY_BRANCH">Students by branch</option>
             </select>
             <select
               value={customEmailMode}
@@ -3474,6 +3495,33 @@ export default function AdminPanelClient({
               required
             />
           </div>
+
+          {customEmailScope === "STUDENTS_BY_BRANCH" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <select
+                value={customEmailBranch}
+                onChange={(e) => setCustomEmailBranch(e.target.value)}
+                className="border border-[#c4c6d3] px-3 py-2 text-sm"
+                required
+              >
+                <option value="">Select branch</option>
+                {BRANCH_CODES.map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+              <select
+                value={customEmailYear}
+                onChange={(e) => setCustomEmailYear(e.target.value)}
+                className="border border-[#c4c6d3] px-3 py-2 text-sm"
+              >
+                <option value="">All years</option>
+                <option value="FIRST">First year</option>
+                <option value="SECOND">Second year</option>
+                <option value="THIRD">Third year</option>
+                <option value="FOURTH">Fourth year</option>
+              </select>
+            </div>
+          ) : null}
 
           {customEmailScope === "CUSTOM" ? (
             <textarea

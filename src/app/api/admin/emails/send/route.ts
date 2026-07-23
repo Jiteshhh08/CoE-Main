@@ -3,8 +3,9 @@ import prisma from '@/lib/prisma';
 import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers';
 import { dispatchEmail, sendEmail } from '@/lib/email-delivery';
 import { buildAdminBroadcastEmailHtml } from '@/lib/email-templates';
+import { parseUid, matchesYearFilter, YearFilter } from '@/lib/uid-utils';
 
-type AudienceScope = 'CUSTOM' | 'STUDENTS' | 'FACULTY' | 'ALL_USERS';
+type AudienceScope = 'CUSTOM' | 'STUDENTS' | 'FACULTY' | 'ALL_USERS' | 'STUDENTS_BY_BRANCH';
 
 type AdminEmailPayload = {
   scope: AudienceScope;
@@ -12,6 +13,8 @@ type AdminEmailPayload = {
   subject: string;
   message: string;
   mode?: 'IMMEDIATE' | 'BULK';
+  branch?: string;
+  year?: string;
 };
 
 export const runtime = 'nodejs';
@@ -72,6 +75,8 @@ export async function POST(req: NextRequest) {
       const formSubject = formData.get('subject');
       const formMessage = formData.get('message');
       const formEmails = formData.get('emails');
+      const formBranch = formData.get('branch');
+      const formYear = formData.get('year');
 
       payload = {
         scope: typeof formScope === 'string' ? (formScope as AudienceScope) : 'CUSTOM',
@@ -79,6 +84,8 @@ export async function POST(req: NextRequest) {
         message: typeof formMessage === 'string' ? formMessage : '',
         mode: typeof formMode === 'string' ? (formMode as 'IMMEDIATE' | 'BULK') : 'IMMEDIATE',
         emails: typeof formEmails === 'string' ? formEmails : undefined,
+        branch: typeof formBranch === 'string' ? formBranch : undefined,
+        year: typeof formYear === 'string' ? formYear : undefined,
       };
 
       attachments = formData.getAll('attachments').filter((file) => file instanceof File) as File[];
@@ -89,7 +96,7 @@ export async function POST(req: NextRequest) {
     const message = payload?.message?.trim() || '';
     const mode = payload?.mode === 'BULK' ? 'bulk' : 'immediate';
 
-    if (!scope || !['CUSTOM', 'STUDENTS', 'FACULTY', 'ALL_USERS'].includes(scope)) {
+    if (!scope || !['CUSTOM', 'STUDENTS', 'FACULTY', 'ALL_USERS', 'STUDENTS_BY_BRANCH'].includes(scope)) {
       return errorRes('Validation failed', ['A valid audience is required.'], 400);
     }
 
@@ -110,6 +117,30 @@ export async function POST(req: NextRequest) {
       if (invalid.length > 0) {
         return errorRes('Validation failed', [`Invalid emails: ${invalid.slice(0, 5).join(', ')}`], 400);
       }
+    } else if (scope === 'STUDENTS_BY_BRANCH') {
+      const branchCode = payload?.branch?.trim().toUpperCase();
+      if (!branchCode) return errorRes('Validation failed', ['Branch code is required for branch-scoped emails.'], 400);
+
+      const yearFilter = payload?.year?.trim().toUpperCase() as YearFilter | undefined;
+      const validYears = ['FIRST', 'SECOND', 'THIRD', 'FOURTH'];
+      const parsedYear = yearFilter && validYears.includes(yearFilter) ? (yearFilter as YearFilter) : undefined;
+
+      const students = await prisma.user.findMany({
+        where: { role: 'STUDENT', status: 'ACTIVE' },
+        select: { email: true, uid: true },
+      });
+
+      recipients = normalizeEmails(
+        students
+          .filter((s) => {
+            const parts = parseUid(s.uid);
+            if (!parts) return false;
+            if (parts.branchCode !== branchCode) return false;
+            if (parsedYear && !matchesYearFilter(parts, parsedYear)) return false;
+            return true;
+          })
+          .map((s) => s.email)
+      );
     } else {
       recipients = await resolveRecipients(scope);
     }
