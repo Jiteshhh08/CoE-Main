@@ -3519,35 +3519,37 @@ export default function AdminPanelClient({
           </div>
 
           {customEmailScope === "STUDENTS_BY_BRANCH" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <select
-                value={customEmailBranch}
-                onChange={(e) => setCustomEmailBranch(e.target.value)}
-                className="border border-[#c4c6d3] px-3 py-2 text-sm"
-                required
-              >
-                <option value="">Select branch</option>
-                {BRANCH_CODES.map((code) => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-              </select>
-              <select
-                value={customEmailYear}
-                onChange={(e) => setCustomEmailYear(e.target.value)}
-                className="border border-[#c4c6d3] px-3 py-2 text-sm"
-              >
-                <option value="">All years</option>
-                <option value="FIRST">First year</option>
-                <option value="SECOND">Second year</option>
-                <option value="THIRD">Third year</option>
-                <option value="FOURTH">Fourth year</option>
-              </select>
-            </div>
-            {customEmailBranch ? (
-              <p className="text-xs text-[#747782]">
-                {loadingRecipientCount ? "Estimating recipient count..." : `~${estimatedRecipientCount ?? '?'} matching student(s)`}
-              </p>
-            ) : null}
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <select
+                  value={customEmailBranch}
+                  onChange={(e) => setCustomEmailBranch(e.target.value)}
+                  className="border border-[#c4c6d3] px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="">Select branch</option>
+                  {BRANCH_CODES.map((code) => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
+                <select
+                  value={customEmailYear}
+                  onChange={(e) => setCustomEmailYear(e.target.value)}
+                  className="border border-[#c4c6d3] px-3 py-2 text-sm"
+                >
+                  <option value="">All years</option>
+                  <option value="FIRST">First year</option>
+                  <option value="SECOND">Second year</option>
+                  <option value="THIRD">Third year</option>
+                  <option value="FOURTH">Fourth year</option>
+                </select>
+              </div>
+              {customEmailBranch ? (
+                <p className="text-xs text-[#747782]">
+                  {loadingRecipientCount ? "Estimating recipient count..." : `~${estimatedRecipientCount ?? '?'} matching student(s)`}
+                </p>
+              ) : null}
+            </>
           ) : null}
 
           {customEmailScope === "CUSTOM" ? (
