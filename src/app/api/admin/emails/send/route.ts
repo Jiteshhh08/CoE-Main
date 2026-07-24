@@ -217,3 +217,42 @@ export async function POST(req: NextRequest) {
     return errorRes('Internal server error', [], 500);
   }
 }
+
+// GET /api/admin/emails/send?scope=STUDENTS_BY_BRANCH&branch=COMP&year=SECOND
+export async function GET(req: NextRequest) {
+  try {
+    const user = authenticate(req);
+    if (!user) return errorRes('Unauthorized', [], 401);
+    if (!authorize(user, 'ADMIN')) return errorRes('Forbidden', ['Admin access required'], 403);
+
+    const { searchParams } = new URL(req.url);
+    const scope = searchParams.get('scope');
+    const branch = searchParams.get('branch')?.trim().toUpperCase();
+    const year = searchParams.get('year')?.trim().toUpperCase();
+
+    if (scope !== 'STUDENTS_BY_BRANCH' || !branch) {
+      return successRes({ count: null });
+    }
+
+    const validYears = ['FIRST', 'SECOND', 'THIRD', 'FOURTH'];
+    const parsedYear = year && validYears.includes(year) ? (year as YearFilter) : undefined;
+
+    const students = await prisma.user.findMany({
+      where: { role: 'STUDENT', status: 'ACTIVE' },
+      select: { uid: true },
+    });
+
+    const count = students.filter((s) => {
+      const parts = parseUid(s.uid);
+      if (!parts) return false;
+      if (parts.branchCode !== branch) return false;
+      if (parsedYear && !matchesYearFilter(parts, parsedYear)) return false;
+      return true;
+    }).length;
+
+    return successRes({ count });
+  } catch (err) {
+    console.error('Email recipient count error:', err);
+    return errorRes('Internal server error', [], 500);
+  }
+}

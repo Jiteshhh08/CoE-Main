@@ -904,6 +904,8 @@ export default function AdminPanelClient({
   const [customEmailAttachments, setCustomEmailAttachments] = useState<File[]>([]);
   const [customEmailBranch, setCustomEmailBranch] = useState("");
   const [customEmailYear, setCustomEmailYear] = useState("");
+  const [estimatedRecipientCount, setEstimatedRecipientCount] = useState<number | null>(null);
+  const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
 
   const [ticketIdInput, setTicketIdInput] = useState("");
   const [ticketVerifying, setTicketVerifying] = useState(false);
@@ -1442,6 +1444,7 @@ export default function AdminPanelClient({
       setCustomEmailAttachments([]);
       setCustomEmailBranch("");
       setCustomEmailYear("");
+      setEstimatedRecipientCount(null);
 
       if (activeView === "operations" && operationsTab === "emails") {
         void handleRefreshEmailSnapshot();
@@ -1452,6 +1455,23 @@ export default function AdminPanelClient({
       setSendingCustomEmail(false);
     }
   };
+
+  useEffect(() => {
+    if (customEmailScope !== "STUDENTS_BY_BRANCH" || !customEmailBranch) {
+      setEstimatedRecipientCount(null);
+      return;
+    }
+
+    setLoadingRecipientCount(true);
+    const params = new URLSearchParams({ scope: "STUDENTS_BY_BRANCH", branch: customEmailBranch });
+    if (customEmailYear) params.set("year", customEmailYear);
+
+    fetch(`/api/admin/emails/send?${params.toString()}`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((payload) => setEstimatedRecipientCount(payload?.data?.count ?? null))
+      .catch(() => setEstimatedRecipientCount(null))
+      .finally(() => setLoadingRecipientCount(false));
+  }, [customEmailScope, customEmailBranch, customEmailYear]);
 
   useEffect(() => {
     if (activeView !== "operations") return;
@@ -3460,8 +3480,10 @@ export default function AdminPanelClient({
           <span className="text-[11px] uppercase tracking-widest text-[#8c4f00] font-label">
             {customEmailScope === "CUSTOM"
               ? `${customEmailRecipientList.length} recipient(s)`
-              : customEmailScope === "STUDENTS_BY_BRANCH"
-              ? `Recipients: ${customEmailBranch}${customEmailYear ? ` (${customEmailYear})` : ''}`
+              : customEmailScope === "STUDENTS_BY_BRANCH" && customEmailBranch
+              ? loadingRecipientCount
+                ? `Estimating...`
+                : `${estimatedRecipientCount ?? '?'} recipient(s)`
               : "Recipient list resolved on send"}
           </span>
         </div>
@@ -3521,6 +3543,11 @@ export default function AdminPanelClient({
                 <option value="FOURTH">Fourth year</option>
               </select>
             </div>
+            {customEmailBranch ? (
+              <p className="text-xs text-[#747782]">
+                {loadingRecipientCount ? "Estimating recipient count..." : `~${estimatedRecipientCount ?? '?'} matching student(s)`}
+              </p>
+            ) : null}
           ) : null}
 
           {customEmailScope === "CUSTOM" ? (
