@@ -834,6 +834,7 @@ export default function AdminPanelClient({
   const searchParams = useSearchParams();
 
   const [busyBookingId, setBusyBookingId] = useState<number | null>(null);
+const [busyAllAttendance, setBusyAllAttendance] = useState(false);
   const [busyFacultyId, setBusyFacultyId] = useState<number | null>(null);
   const [hodModalUserId, setHodModalUserId] = useState<number | null>(null);
   const [hodModalDepartment, setHodModalDepartment] = useState("");
@@ -2141,6 +2142,51 @@ export default function AdminPanelClient({
       setErrorMessage(err instanceof Error ? err.message : "Could not reject booking.");
     } finally {
       setBusyBookingId(null);
+    }
+  };
+
+  const handleMarkPresent = async (bookingId: number, ticketId: string) => {
+    try {
+      setErrorMessage("");
+      setStatusMessage("");
+      setBusyBookingId(bookingId);
+      await apiCall("/api/tickets/verify", {
+        method: "POST",
+        body: JSON.stringify({ ticketId }),
+      });
+      setStatusMessage(`Attendance marked for booking #${bookingId}.`);
+      router.refresh();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Could not mark attendance.");
+    } finally {
+      setBusyBookingId(null);
+    }
+  };
+
+  const handleMarkAllPresent = async () => {
+    const count = unattendedCompletedBookings.length;
+    if (count === 0) return;
+    try {
+      setErrorMessage("");
+      setStatusMessage(`Marking attendance for ${count} booking(s)...`);
+      setBusyAllAttendance(true);
+      for (const booking of unattendedCompletedBookings) {
+        if (!booking.ticket?.ticketId) continue;
+        try {
+          await apiCall("/api/tickets/verify", {
+            method: "POST",
+            body: JSON.stringify({ ticketId: booking.ticket.ticketId }),
+          });
+        } catch {
+          // continue marking the rest even if one fails
+        }
+      }
+      setStatusMessage(`Attendance marked for all ${count} booking(s).`);
+      router.refresh();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Could not mark all attendance.");
+    } finally {
+      setBusyAllAttendance(false);
     }
   };
 
@@ -4111,7 +4157,18 @@ export default function AdminPanelClient({
               <div className="border border-[#c4c6d3] bg-white p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-headline text-xl text-[#002155]">Did Not Come</h3>
-                  <span className="text-xs uppercase tracking-widest text-[#ba1a1a] font-label">{unattendedCompletedBookings.length}</span>
+                  <div className="flex items-center gap-3">
+                    {unattendedCompletedBookings.length > 0 ? (
+                      <button
+                        onClick={handleMarkAllPresent}
+                        disabled={busyAllAttendance}
+                        className="border border-[#0b6b2e] text-[#0b6b2e] px-3 py-1 text-xs font-bold uppercase tracking-wider hover:bg-[#0b6b2e] hover:text-white transition-colors disabled:opacity-50"
+                      >
+                        {busyAllAttendance ? "Marking..." : `Mark All Present (${unattendedCompletedBookings.length})`}
+                      </button>
+                    ) : null}
+                    <span className="text-xs uppercase tracking-widest text-[#ba1a1a] font-label">{unattendedCompletedBookings.length}</span>
+                  </div>
                 </div>
 
                 {unattendedCompletedBookings.length === 0 ? (
@@ -4120,13 +4177,30 @@ export default function AdminPanelClient({
                   <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
                     {unattendedCompletedBookings.map((booking) => (
                       <article key={`absent-booking-${booking.id}`} className="border border-red-200 bg-red-50 p-3">
-                        <p className="text-sm font-bold text-[#002155]">
-                          #{booking.id} • {booking.lab} • {new Date(booking.date).toLocaleDateString()} • {booking.timeSlot}
-                        </p>
-                        <p className="mt-1 text-xs text-[#434651]">Student: {booking.student.name} ({booking.student.email})</p>
-                        <p className="mt-1 text-xs text-[#434651]">UID: {booking.student.uid || "Not provided"}</p>
-                        <p className="mt-1 text-xs text-[#434651]">Ticket: {booking.ticket?.ticketId || "N/A"}</p>
-                        <p className="mt-1 text-xs font-semibold text-[#ba1a1a]">Attendance: NOT MARKED (did not come)</p>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-[#002155]">
+                              #{booking.id} • {booking.lab} • {new Date(booking.date).toLocaleDateString()} • {booking.timeSlot}
+                            </p>
+                            <p className="mt-1 text-xs text-[#434651]">Student: {booking.student.name} ({booking.student.email})</p>
+                            <p className="mt-1 text-xs text-[#434651]">UID: {booking.student.uid || "Not provided"}</p>
+                            <p className="mt-1 text-xs text-[#434651]">Ticket: {booking.ticket?.ticketId || "N/A"}</p>
+                            {booking.ticket?.ticketId ? (
+                              <p className="mt-1 text-xs font-semibold text-[#ba1a1a]">Attendance: NOT MARKED</p>
+                            ) : (
+                              <p className="mt-1 text-xs font-semibold text-[#747782]">No ticket issued — cannot mark present</p>
+                            )}
+                          </div>
+                          {booking.ticket?.ticketId ? (
+                            <button
+                              onClick={() => handleMarkPresent(booking.id, booking.ticket!.ticketId)}
+                              disabled={busyBookingId === booking.id}
+                              className="shrink-0 border border-[#0b6b2e] text-[#0b6b2e] px-3 py-1 text-xs font-bold uppercase tracking-wider hover:bg-[#0b6b2e] hover:text-white transition-colors disabled:opacity-50"
+                            >
+                              {busyBookingId === booking.id ? "..." : "Mark Present"}
+                            </button>
+                          ) : null}
+                        </div>
                       </article>
                     ))}
                   </div>
