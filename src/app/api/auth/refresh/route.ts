@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
         uid: true,
         industryId: true,
         status: true,
+        facultyProfile: { select: { isHod: true } },
       },
     });
 
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
     };
 
     const accessToken = generateAccessToken(payload);
-    const sharedToken = generateSharedToken(buildSharedTokenPayload(currentUser));
+    const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...currentUser, isHod: currentUser.facultyProfile?.isHod }));
     const secureCookies = useSecureCookies();
     const sharedCookieOptions = getSharedCookieOptions();
 
@@ -95,11 +96,11 @@ async function handleImpersonationRefresh(decoded: TokenPayload) {
   const [admin, target] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.adminId },
-      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true },
+      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true, facultyProfile: { select: { isHod: true } } },
     }),
     prisma.user.findUnique({
       where: { id: session.targetUserId },
-      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true },
+      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true, facultyProfile: { select: { isHod: true } } },
     }),
   ]);
 
@@ -115,7 +116,7 @@ async function handleImpersonationRefresh(decoded: TokenPayload) {
   const accessToken = generateAccessToken(impersonationPayload);
   const newRefreshToken = generateRefreshToken(impersonationPayload);
   const sharedToken = generateSharedToken(
-    buildSharedTokenPayload(target, { sessionId }),
+    buildSharedTokenPayload({ ...target, isHod: target.facultyProfile?.isHod }, { sessionId }),
   );
 
   const secureCookies = useSecureCookies();
@@ -178,7 +179,7 @@ async function impersonationFallback(
   if (adminId) {
     const admin = await prisma.user.findUnique({
       where: { id: adminId },
-      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true },
+      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true, facultyProfile: { select: { isHod: true } } },
     });
 
     if (admin && admin.status === 'ACTIVE') {
@@ -193,7 +194,7 @@ async function impersonationFallback(
 
       const accessToken = generateAccessToken(adminPayload);
       const newRefreshToken = generateRefreshToken(adminPayload);
-      const sharedToken = generateSharedToken(buildSharedTokenPayload(admin));
+      const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...admin, isHod: admin.facultyProfile?.isHod }));
 
       const response = successRes(
         { accessToken, restored: true, reason },

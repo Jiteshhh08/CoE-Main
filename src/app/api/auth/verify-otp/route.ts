@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     const verifiedUser = await prisma.user.findFirst({
       where: { email },
-      select: { id: true, email: true, name: true, role: true, uid: true, status: true, industryId: true },
+      select: { id: true, email: true, name: true, role: true, uid: true, status: true, industryId: true, facultyProfile: { select: { isHod: true } } },
     });
 
     await prisma.otp.deleteMany({ where: { email } });
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
-    const sharedToken = generateSharedToken(buildSharedTokenPayload(verifiedUser));
+    const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...verifiedUser, isHod: verifiedUser.facultyProfile?.isHod }));
     const secureCookies = useSecureCookies();
     const sharedCookieOptions = getSharedCookieOptions();
 

@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       where: {
         OR: [{ email: normalizedEmail }, { uid: normalizedUid }],
       },
+      include: { facultyProfile: { select: { isHod: true } } },
     });
     if (!user) {
       return errorRes('Invalid email/UID or password.', [], 401);
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
-    const sharedToken = generateSharedToken(buildSharedTokenPayload(user));
+    const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...user, isHod: user.facultyProfile?.isHod }));
     const secureCookies = useSecureCookies();
     const sharedCookieOptions = getSharedCookieOptions();
 

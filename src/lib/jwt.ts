@@ -34,6 +34,8 @@ export interface SharedTokenPayload {
   name: string;
   role: 'ADMIN' | 'FACULTY' | 'STUDENT' | 'INDUSTRY';
   status: 'ACTIVE' | 'PENDING' | 'REJECTED';
+  uid?: string;
+  isHod?: boolean;
   // New optional fields — present ONLY during impersonation
   isImpersonating?: true;
   impersonation?: {

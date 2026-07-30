@@ -53,10 +53,14 @@ export async function POST(req: NextRequest) {
     try {
       const adminEmail = process.env.ADMIN_EMAIL;
       if (adminEmail) {
+        const identityLine =
+          user.role === 'STUDENT'
+            ? `UID: <strong>${user.uid || 'N/A'}</strong>`
+            : `Email: <strong>${user.email}</strong>`;
         await dispatchEmail({
           to: adminEmail,
           subject: `New Facility Booking Request from ${user.name}`,
-          html: `<p>New facility booking request from <strong>${user.name}</strong> for <strong>${date}</strong> (${timeSlot}) at <strong>${lab}</strong>.</p>`,
+          html: `<p>New facility booking request from <strong>${user.name}</strong> (${identityLine}) for <strong>${date}</strong> (${timeSlot}) at <strong>${lab}</strong>.</p>`,
           mode: 'immediate',
           category: 'ADMIN_BOOKING_REQUEST',
         });

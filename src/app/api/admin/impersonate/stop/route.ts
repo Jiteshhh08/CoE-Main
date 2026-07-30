@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     // Try to restore the admin user
     const admin = await prisma.user.findUnique({
       where: { id: session.adminId },
-      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true },
+      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true, facultyProfile: { select: { isHod: true } } },
     });
 
     const secureCookies = useSecureCookies();
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
       const accessToken = generateAccessToken(adminPayload);
       const refreshToken = generateRefreshToken(adminPayload);
-      const sharedToken = generateSharedToken(buildSharedTokenPayload(admin));
+      const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...admin, isHod: admin.facultyProfile?.isHod }));
 
       const response = successRes(
         { restored: true, reason: 'restored' },

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const userAgent = req.headers.get('user-agent') || undefined;
 
     const session = await prisma.$transaction(async (tx) => {
-      const target = await tx.user.findUnique({ where: { id: targetId } });
+      const target = await tx.user.findUnique({ where: { id: targetId }, include: { facultyProfile: { select: { isHod: true } } } });
       if (!target) {
         throw new ImpersonationStartError('TARGET_NOT_FOUND', 'Target user not found.', 404);
       }
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     const targetUser = await prisma.user.findUnique({
       where: { id: targetId },
-      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true },
+      select: { id: true, name: true, email: true, role: true, uid: true, industryId: true, status: true, facultyProfile: { select: { isHod: true } } },
     });
     if (!targetUser) {
       // Should never happen after transaction success, but guard anyway
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     const accessToken = generateAccessToken(accessPayload);
     const refreshToken = generateRefreshToken(accessPayload);
     const sharedToken = generateSharedToken(
-      buildSharedTokenPayload(targetUser, { sessionId: session.id }),
+      buildSharedTokenPayload({ ...targetUser, isHod: targetUser.facultyProfile?.isHod }, { sessionId: session.id }),
     );
 
     const secureCookies = useSecureCookies();

@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Look up by googleId first
-    const userByGoogleId = await prisma.user.findUnique({ where: { googleId: sub } });
+    const userByGoogleId = await prisma.user.findUnique({ where: { googleId: sub }, include: { facultyProfile: { select: { isHod: true } } } });
     if (userByGoogleId) {
       // Returning Google user — login
       if (userByGoogleId.status === 'PENDING') {
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Look up by email
-    const userByEmail = await prisma.user.findUnique({ where: { email } });
+    const userByEmail = await prisma.user.findUnique({ where: { email }, include: { facultyProfile: { select: { isHod: true } } } });
     if (userByEmail) {
       if (userByEmail.googleId) {
         // googleId exists but lookup by googleId above didn't match — different Google account
@@ -164,6 +164,7 @@ export async function POST(req: NextRequest) {
 async function issueLoginResponse(user: {
   id: number; name: string; email: string; role: string;
   uid: string | null; industryId: number | null; status: string;
+  facultyProfile?: { isHod: boolean } | null;
 }, sub: string) {
   const payload: TokenPayload = {
     id: user.id,
@@ -176,7 +177,7 @@ async function issueLoginResponse(user: {
 
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
-  const sharedToken = generateSharedToken(buildSharedTokenPayload(user));
+  const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...user, isHod: user.facultyProfile?.isHod }));
   const secureCookies = useSecureCookies();
   const sharedCookieOptions = getSharedCookieOptions();
 

@@ -27,6 +27,8 @@ export const buildSharedTokenPayload = (
     role: string;
     status: string;
     name?: string;
+    uid?: string | null;
+    isHod?: boolean;
   },
   impersonation?: {
     sessionId: string;
@@ -44,6 +46,8 @@ export const buildSharedTokenPayload = (
     name,
     role: mappedRole,
     status: user.status as SharedTokenPayload['status'],
+    ...(user.uid && { uid: user.uid }),
+    ...(user.isHod != null && { isHod: user.isHod }),
     ...(impersonation && {
       isImpersonating: true,
       impersonation: { sessionId: impersonation.sessionId },

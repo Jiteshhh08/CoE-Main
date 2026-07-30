@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const { sub, email } = googlePayload;
 
     // Find user by email
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email }, include: { facultyProfile: { select: { isHod: true } } } });
     if (!user) {
       logActivity('GOOGLE_ACCOUNT_LINK_FAILED', { email, error: 'USER_NOT_FOUND' });
       return errorRes('Account not found. Please register first.', ['USER_NOT_FOUND'], 404);
@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
 async function issueLinkLoginResponse(user: {
   id: number; name: string; email: string; role: string;
   uid: string | null; industryId: number | null; status: string;
+  facultyProfile?: { isHod: boolean } | null;
 }, sub: string) {
   const payload: TokenPayload = {
     id: user.id,
@@ -119,7 +120,7 @@ async function issueLinkLoginResponse(user: {
 
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
-  const sharedToken = generateSharedToken(buildSharedTokenPayload(user));
+  const sharedToken = generateSharedToken(buildSharedTokenPayload({ ...user, isHod: user.facultyProfile?.isHod }));
   const secureCookies = useSecureCookies();
   const sharedCookieOptions = getSharedCookieOptions();
 
