@@ -100,6 +100,16 @@ export default function Navbar({ user }: NavbarProps) {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
+  // Within a group, only the most specific matching link should appear active.
+  // e.g. on /admin/hosting-requests, "Hosting Requests" wins over "Admin Panel".
+  const getActiveHref = (links: NavLinkItem[]): string | null => {
+    const matches = links.filter((link) => isLinkActive(link.href));
+    if (matches.length === 0) return null;
+    return matches.reduce((longest, link) =>
+      link.href.length > longest.href.length ? link : longest
+    ).href;
+  };
+
   const primaryLinks: NavLinkItem[] = [
     { label: "Home", href: "/" },
     { label: "About", href: "/about" },
@@ -255,7 +265,7 @@ export default function Navbar({ user }: NavbarProps) {
                           key={`${menu.key}-${link.href}`}
                           href={link.href}
                           onClick={() => setOpenDesktopDropdown(null)}
-                          className={`${isLinkActive(link.href)
+                          className={`${getActiveHref(menu.links) === link.href
                             ? "bg-[#fd9923] text-[#002155]"
                             : "text-white hover:bg-white/10"
                             } block px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-colors`}
@@ -468,7 +478,7 @@ export default function Navbar({ user }: NavbarProps) {
                   key={`main-${link.href}`}
                   href={link.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`${isLinkActive(link.href)
+                  className={`${getActiveHref(primaryLinks) === link.href
                     ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                     : "text-white opacity-80 hover:opacity-100 pl-4"
                     } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
@@ -488,7 +498,7 @@ export default function Navbar({ user }: NavbarProps) {
                   key={`program-${link.href}`}
                   href={link.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`${isLinkActive(link.href)
+                  className={`${getActiveHref(programsLinks) === link.href
                     ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                     : "text-white opacity-80 hover:opacity-100 pl-4"
                     } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
@@ -524,7 +534,7 @@ export default function Navbar({ user }: NavbarProps) {
                     key={`portal-${link.href}`}
                     href={link.href}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className={`${isLinkActive(link.href)
+                    className={`${getActiveHref(portalLinks) === link.href
                       ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                       : "text-white opacity-80 hover:opacity-100 pl-4"
                       } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
