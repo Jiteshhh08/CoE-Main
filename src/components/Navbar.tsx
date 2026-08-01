@@ -570,7 +570,7 @@ export default function Navbar({ user }: NavbarProps) {
                     <Link
                       href="/profile"
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className="mt-3 inline-block w-full border border-[#002155] py-3 text-center text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white transition-colors"
+                      className="mt-3 inline-block w-full border border-white/40 py-3 text-center text-xs font-bold uppercase tracking-wider text-[#fff] hover:bg-white/40 hover:text-[#002155] transition-colors"
                     >
                       My Profile
                     </Link>
