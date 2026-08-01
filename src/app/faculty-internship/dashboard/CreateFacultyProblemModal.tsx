@@ -100,6 +100,7 @@ export default function CreateFacultyProblemModal({ canCreate }: CreateProblemMo
 
   return (
     <>
+    <main className='my-20'>
       <button
         onClick={() => {
           resetForm();
@@ -109,7 +110,7 @@ export default function CreateFacultyProblemModal({ canCreate }: CreateProblemMo
       >
         Create Faculty Internship
       </button>
-
+      
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-lg rounded bg-white p-5 shadow-xl border border-[#c4c6d3]">
@@ -252,6 +253,7 @@ export default function CreateFacultyProblemModal({ canCreate }: CreateProblemMo
           </div>
         </div>
       )}
+      </main>
     </>
   );
 }

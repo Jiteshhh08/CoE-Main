@@ -56,7 +56,7 @@ export default async function IndustryInternshipDashboardPage() {
   const countMap = new Map(counts.map((row) => [row.problemId, row._count._all]));
 
   return (
-    <main className="max-w-6xl mx-auto px-4 md:px-8 pt-[120px] pb-14 min-h-screen">
+    <main className="max-w-6xl mx-auto my-10 px-4 md:px-8 pt-[120px] pb-14 min-h-screen">
       <header className="mb-8 border-l-4 border-[#002155] pl-4 md:pl-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
