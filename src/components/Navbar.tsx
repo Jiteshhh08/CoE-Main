@@ -362,7 +362,7 @@ export default function Navbar({ user }: NavbarProps) {
                           <Link
                             href="/innovation/my-submissions"
                             onClick={() => setIsUserMenuOpen(false)}
-                            className="border border-[#002155] px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-[#002155]"
+                            className="border border-[#002155] px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white transition-colors"
                           >
                             My Submissions
                           </Link>
@@ -396,14 +396,14 @@ export default function Navbar({ user }: NavbarProps) {
                       <Link
                         href="/facility-booking"
                         onClick={() => setIsUserMenuOpen(false)}
-                        className="border border-[#8c4f00] px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-[#8c4f00]"
+                        className="border border-[#8c4f00] px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-[#8c4f00] hover:bg-[#8c4f00] hover:text-white transition-colors"
                       >
                         My Booking Area
                       </Link>
                       <button
                         type="button"
                         onClick={() => void handleLogout()}
-                        className="bg-[#002155] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white"
+                        className="bg-[#002155] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white cursor-pointer"
                       >
                         Logout
                       </button>
@@ -570,7 +570,7 @@ export default function Navbar({ user }: NavbarProps) {
                     <Link
                       href="/profile"
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className="mt-3 inline-block w-full border border-white/40 py-3 text-center text-xs font-bold uppercase tracking-wider text-[#fff] hover:bg-white/40 hover:text-[#002155] transition-colors"
+                      className="mt-3 inline-block w-full border border-white/40 py-3 text-center text-xs font-bold uppercase tracking-wider text-[#fff] hover:bg-white hover:text-[#002155] transition-colors"
                     >
                       My Profile
                     </Link>
@@ -602,7 +602,7 @@ export default function Navbar({ user }: NavbarProps) {
                 <button
                   type="button"
                   onClick={() => void handleLogout()}
-                  className="mt-3 inline-block w-full bg-[#0b2f66] py-3 text-center text-xs font-bold uppercase tracking-wider text-white"
+                  className="mt-3 inline-block w-full bg-[#0b2f66] py-3 text-center text-xs font-bold uppercase tracking-wider text-white cursor-pointer"
                 >
                   Logout
                 </button>
