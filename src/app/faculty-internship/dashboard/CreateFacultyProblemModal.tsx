@@ -100,7 +100,7 @@ export default function CreateFacultyProblemModal({ canCreate }: CreateProblemMo
 
   return (
     <>
-    <main className='my-20'>
+    <div className="mt-40">
       <button
         onClick={() => {
           resetForm();
@@ -253,7 +253,7 @@ export default function CreateFacultyProblemModal({ canCreate }: CreateProblemMo
           </div>
         </div>
       )}
-      </main>
+    </div>
     </>
   );
 }

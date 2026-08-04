@@ -149,6 +149,10 @@ export default function Navbar({ user }: NavbarProps) {
     ...(portalLinks.length > 0 ? [{ label: "Portals", key: "portals", links: portalLinks }] : []),
   ];
 
+  const primaryActiveHref = getActiveHref(primaryLinks);
+  const programsActiveHref = getActiveHref(programsLinks);
+  const portalActiveHref = getActiveHref(portalLinks);
+
   const handleLogout = async () => {
     try {
       await fetch("/api/auth/logout", {
@@ -230,6 +234,7 @@ export default function Navbar({ user }: NavbarProps) {
 
             {groupedDesktopMenus.map((menu) => {
               const isMenuActive = menu.links.some((link) => isLinkActive(link.href));
+              const menuActiveHref = getActiveHref(menu.links);
               const isOpen = openDesktopDropdown === menu.key;
               const useActiveHighlight = menu.key !== "spotlight";
 
@@ -265,7 +270,7 @@ export default function Navbar({ user }: NavbarProps) {
                           key={`${menu.key}-${link.href}`}
                           href={link.href}
                           onClick={() => setOpenDesktopDropdown(null)}
-                          className={`${getActiveHref(menu.links) === link.href
+                          className={`${menuActiveHref === link.href
                             ? "bg-[#fd9923] text-[#002155]"
                             : "text-white hover:bg-white/10"
                             } block px-3 py-2 text-[11px] font-bold uppercase tracking-wider transition-colors`}
@@ -478,7 +483,7 @@ export default function Navbar({ user }: NavbarProps) {
                   key={`main-${link.href}`}
                   href={link.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`${getActiveHref(primaryLinks) === link.href
+                  className={`${primaryActiveHref === link.href
                     ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                     : "text-white opacity-80 hover:opacity-100 pl-4"
                     } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
@@ -498,7 +503,7 @@ export default function Navbar({ user }: NavbarProps) {
                   key={`program-${link.href}`}
                   href={link.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`${getActiveHref(programsLinks) === link.href
+                  className={`${programsActiveHref === link.href
                     ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                     : "text-white opacity-80 hover:opacity-100 pl-4"
                     } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
@@ -534,7 +539,7 @@ export default function Navbar({ user }: NavbarProps) {
                     key={`portal-${link.href}`}
                     href={link.href}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className={`${getActiveHref(portalLinks) === link.href
+                    className={`${portalActiveHref === link.href
                       ? "text-[#fd9923] font-bold border-l-4 border-[#fd9923] pl-3"
                       : "text-white opacity-80 hover:opacity-100 pl-4"
                       } transition-all text-sm font-['Inter'] uppercase tracking-widest block`}
