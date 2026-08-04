@@ -54,7 +54,6 @@ export default function Navbar({ user }: NavbarProps) {
   const isLoggedIn = !!user;
   const bookFacilityHref = isLoggedIn ? "/facility-booking" : bookingLoginHref;
 
-  
 
   useEffect(() => {
     setOpenDesktopDropdown(null);
@@ -229,8 +228,6 @@ export default function Navbar({ user }: NavbarProps) {
                 {link.label}
               </Link>
             ))}
-
-            
 
             {groupedDesktopMenus.map((menu) => {
               const isMenuActive = menu.links.some((link) => isLinkActive(link.href));
@@ -491,7 +488,6 @@ export default function Navbar({ user }: NavbarProps) {
                   {link.label}
                 </Link>
               ))}
-              
             </div>
           </div>
 
