@@ -76,7 +76,7 @@ export async function syncDashboardUser(user: SyncUserPayload): Promise<void> {
       // 5-second timeout so the OT verify flow never hangs
       signal: AbortSignal.timeout(5000),
     });
-
+    // if error
     if (!response.ok) {
       const body = await response.text().catch(() => "no body");
       console.error(
