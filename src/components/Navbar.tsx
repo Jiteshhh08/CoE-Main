@@ -428,14 +428,23 @@ export default function Navbar({ user }: NavbarProps) {
 
           {/* EXTREME RIGHT: TCET Logo */}
           <div className="shrink-0 flex items-center justify-center ml-2 sm:ml-4">
-            <Image
-              src="/tcetlogo.png"
-              alt="TCET Logo"
-              width={64}
-              height={48}
-              priority // <--- This also preloads the TCET logo
-              className="object-contain w-12 h-10 md:w-16 md:h-12"
-            />
+            <a
+              href="https://www.tcetmumbai.in/"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open TCET official website"
+              className="cursor-pointer inline-flex items-center justify-center hover:opacity-90 transition-opacity"
+            >
+              <Image
+                src="/tcetlogo.png"
+                alt="TCET Logo"
+                width={72}
+                height={60}
+                priority // <--- This also preloads the TCET logo
+                unoptimized // <--- Serve the raw file directly so a replaced logo is never stuck in the Next.js image-optimizer cache
+                className="object-contain w-12 h-10 md:w-16 md:h-12 "
+              />
+            </a>
           </div>
 
           {/* Mobile Toggle Button */}
