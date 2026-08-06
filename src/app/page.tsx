@@ -57,7 +57,7 @@ export default async function HomePage() {
         take: 6,
       }),
       prisma.grant.findMany({
-        where: { isActive: true },
+        where: { isActive: true, deadline: { gte: now } },
         orderBy: { deadline: "asc" },
         take: 8,
       }),
