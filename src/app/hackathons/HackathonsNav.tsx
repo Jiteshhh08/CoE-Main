@@ -52,25 +52,34 @@ export default function HackathonsNav({ user }: { user: NavUser }) {
 
         <span aria-hidden="true" className="h-4 w-px shrink-0 bg-outline-variant" />
 
-        {/* Section links — single scrollable row on phones, wraps never */}
-        <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-x-1 overflow-x-auto">
-          {visibleLinks.map((link) => {
-            const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                aria-current={isActive ? "page" : undefined}
-                className={`whitespace-nowrap px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors md:px-3 ${
-                  isActive
-                    ? "text-primary underline decoration-secondary-container decoration-2 underline-offset-8"
-                    : "text-muted hover:text-primary"
-                }`}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
+        {/* Section links — always a single horizontal row. On narrow widths
+            the strip scrolls (native thin scrollbar + edge fade) instead of
+            wrapping, so links never stack vertically and never get hidden. */}
+        <div className="relative min-w-0 flex-1">
+          <div className="flex items-center gap-x-1 overflow-x-auto pb-0.5">
+            {visibleLinks.map((link) => {
+              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`whitespace-nowrap px-2.5 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors md:px-3 ${
+                    isActive
+                      ? "text-primary underline decoration-secondary-container decoration-2 underline-offset-8"
+                      : "text-muted hover:text-primary"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
+          {/* Right-edge fade: hints there is more to scroll */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent"
+          />
         </div>
 
         {/* Signed-in hub button */}
