@@ -53,6 +53,7 @@ export default async function InnovationEventDetailPage({ params }: { params: Pr
           id: true,
           title: true,
           description: true,
+          isCustom: true,
           isIndustryProblem: true,
           industryName: true,
           mode: true,
@@ -70,12 +71,14 @@ export default async function InnovationEventDetailPage({ params }: { params: Pr
     : null;
 
   const eventProblems = await Promise.all(
-    event.problems.map(async (problem) => ({
-      ...problem,
-      supportDocumentUrl: problem.supportDocumentKey
-        ? await getSignedUrl(problem.supportDocumentKey).catch(() => null)
-        : null,
-    }))
+    event.problems
+      .filter((problem) => !problem.isCustom) // open-innovation submissions stay hidden from the catalogue
+      .map(async (problem) => ({
+        ...problem,
+        supportDocumentUrl: problem.supportDocumentKey
+          ? await getSignedUrl(problem.supportDocumentKey).catch(() => null)
+          : null,
+      }))
   );
 
   let viewerRole: 'STUDENT' | 'FACULTY' | 'ADMIN' | null = null;
@@ -215,9 +218,10 @@ export default async function InnovationEventDetailPage({ params }: { params: Pr
         startTimeISO={event.startTime.toISOString()}
         endTimeISO={event.endTime.toISOString()}
         submissionLockISO={event.submissionLockAt ? event.submissionLockAt.toISOString() : null}
-        registrationCloseISO={event.endTime.toISOString()}
+        registrationCloseISO={(event.submissionLockAt ?? event.endTime).toISOString()}
         eventBriefUrl={eventBriefUrl}
         problems={eventProblems}
+        config={(event.config as Record<string, unknown>) ?? {}}
         viewerRole={viewerRole}
         initialRegistration={existingRegistration}
         initialInterest={viewerInterest}

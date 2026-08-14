@@ -179,6 +179,9 @@ model User {
   uploadedSessionDocuments    SessionDocument[]             @relation("SessionDocumentUploader")
   sessionUploadLockUpdates    HackathonSessionUploadLock[]  @relation("SessionUploadLockUpdater")
   attendanceMarkedEntries     TicketAttendance[]            @relation("AttendanceMarker")
+  judgeAssignments            JudgeAssignment[]
+  feedbackGiven               EventFeedback[]
+  coordinatedEvents           HackathonEvent[]              @relation("EventCoordinator")
   attendanceEntries           TicketAttendance[]            @relation("AttendanceParticipant")
   internshipTasks             InternshipTask[]              @relation("InternshipTaskAssignee")
   internshipMessages          InternshipMessage[]           @relation("InternshipMessageSender")
@@ -192,6 +195,8 @@ model User {
   departmentId                Int?
   department                  Department?                   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   isCoordinator               Boolean                       @default(false)
+  erpPasswordEnc              String?                       @map("erp_password_enc")
+  erpPasswordSetAt            DateTime?                     @map("erp_password_set_at")
   opportunitiesCreated        Opportunity[]
   opportunityInterests        OpportunityInterest[]
   learningResourcesCreated    LearningResource[]
@@ -216,6 +221,7 @@ model Problem {
   id                  Int                   @id @default(autoincrement())
   title               String
   description         String                @db.Text
+  isCustom            Boolean               @default(false) // open-innovation submission — hidden from the student catalogue
   tags                String?
   isIndustryProblem   Boolean               @default(false)
   industryName        String?
@@ -277,6 +283,10 @@ model Claim {
   badges            String?
   isAbsent          Boolean            @default(false)
   reminderSent      Boolean            @default(false)
+  mentor            String?            @db.VarChar(200)
+  derivedInfo       Json?              // snapshot: { lead: StudentInfo|manual, members: {uid: StudentInfo} }
+  venueId           Int?
+  venue             Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
   tickets           Ticket[]
   attendanceRecords TicketAttendance[]
   rubricScores      RubricScore[]
@@ -568,6 +578,8 @@ model HackathonEvent {
   status             EventStatus                  @default(UPCOMING)
   createdById        Int
   createdBy          User                         @relation("HackathonCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  coordinatorId      Int?
+  coordinator        User?                        @relation("EventCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
   problems           Problem[]
   interests          HackathonInterest[]
   sessionUploadLocks HackathonSessionUploadLock[]
@@ -578,6 +590,11 @@ model HackathonEvent {
   config             Json?
   featured           Boolean                      @default(false)
   rubrics            RubricCategory[]
+  venues             Venue[]
+  judgeAssignments   JudgeAssignment[]
+  notices            Notice[]
+  feedback           EventFeedback[]
+  media              EventMedia[]
   createdAt          DateTime                     @default(now())
   updatedAt          DateTime                     @updatedAt
   certificates       Certificate[]
@@ -916,10 +933,12 @@ model RubricScore {
   rubricCategoryId Int
   rubricCategory   RubricCategory @relation(fields: [rubricCategoryId], references: [id], onDelete: Cascade)
   score            Int
+  comment          String?        @db.VarChar(1000)
+  round            Int            @default(1)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  @@unique([claimId, rubricCategoryId])
+  @@unique([claimId, rubricCategoryId, round])
   @@index([claimId])
   @@index([rubricCategoryId])
   @@map("rubric_scores")
@@ -982,4 +1001,130 @@ model LearningResource {
   @@index([category])
   @@index([type])
   @@map("learning_resources")
+}
+
+model AttendanceSnapshot {
+  id          Int       @id @default(autoincrement())
+  uid         String // ERP ID = "S" + email local part
+  subject     String
+  type        String // TH | PR | TU
+  present     Int
+  total       Int
+  percentage  Float
+  periodStart DateTime? // from report header, when present
+  periodEnd   DateTime?
+  fetchedAt   DateTime  @default(now())
+
+  @@index([uid])
+  @@map("attendance_snapshots")
+}
+
+model AttendanceStat {
+  id    Int    @id @default(autoincrement())
+  key   String @unique // views | refreshes | captcha_asks | password_saves
+  value Int    @default(0)
+
+  @@map("attendance_stats")
+}
+
+/// Per-user refresh rate-limit state (2 presses / 5 min). One row per student
+/// who ever pressed refresh — bounded, no cleanup needed (expired windows
+/// reset logically on the next press). Kept OFF the users table on purpose.
+model AttendanceRefreshLimit {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@map("attendance_refresh_limits")
+}
+
+model AttendanceSyncJob {
+  id          Int       @id @default(autoincrement())
+  uid         String
+  status      String    @default("QUEUED") // QUEUED | RUNNING | AWAITING_CAPTCHA | SUCCESS | FAILED
+  attempts    Int       @default(0)
+  lastError   String?
+  claimantId  String? // worker instance that claimed the job (double-claim guard)
+  captchaText String? // human-entered captcha for the two-phase solve
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  @@index([uid, status])
+  @@map("attendance_sync_jobs")
+}
+
+// ── Hackathon ops: venues, judges, notices, feedback, media ──────────────
+model Venue {
+  id        Int     @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name      String  @db.VarChar(120)
+  capacity  Int?
+  order     Int     @default(0)
+  claims    Claim[]
+  judgeAssignments JudgeAssignment[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@map("venues")
+}
+
+model JudgeAssignment {
+  id        Int     @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  judgeId   Int
+  judge     User    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  venueId   Int?
+  venue     Venue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, judgeId])
+  @@index([eventId])
+  @@index([judgeId])
+  @@map("judge_assignments")
+}
+
+model Notice {
+  id        Int     @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  title     String  @db.VarChar(200)
+  body      String  @db.Text
+  fileKey   String?
+  pinned    Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId])
+  @@map("notices")
+}
+
+model EventFeedback {
+  id        Int     @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String? @db.VarChar(2000)
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@map("event_feedback")
+}
+
+model EventMedia {
+  id        Int     @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kind      String  @db.VarChar(16) // REPORT | PHOTO | VIDEO
+  fileKey   String
+  caption   String? @db.VarChar(300)
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
+  @@map("event_media")
 }

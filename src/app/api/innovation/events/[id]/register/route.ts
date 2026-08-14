@@ -9,6 +9,14 @@ import { deleteFile, uploadFileWithObjectKey } from '@/lib/minio';
 import { logActivity } from '@/lib/activity-log';
 import { getSignedUrl } from '@/lib/minio';
 import { EventDefaultConfig, getEventTypeDefaults } from '@/lib/platform-config';
+import { deriveStudentInfo, DerivedStudentInfo } from '@/lib/student-info';
+import { isDuplicateProblem } from '@/lib/problem-similarity';
+
+const normalizePhone = (raw: string): string | null => {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 13) return null;
+  return digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+};
 
 type ClaimSummaryInput = {
   id: number;
@@ -16,12 +24,14 @@ type ClaimSummaryInput = {
   createdAt: Date;
   updatedAt: Date;
   submissionFileKey: string | null;
+  mentor: string | null;
   problem: {
     id: number;
     title: string;
   };
   members: Array<{
     role: string;
+    userId: number;
     user: {
       id: number;
       name: string;
@@ -31,11 +41,12 @@ type ClaimSummaryInput = {
   }>;
 };
 
-const buildRegistrationSummary = async (claim: ClaimSummaryInput) => {
+const buildRegistrationSummary = async (claim: ClaimSummaryInput, viewerId?: number) => {
   const teamLeader = claim.members.find((member) => member.role === 'LEAD') || claim.members[0] || null;
   const submissionFileUrl = claim.submissionFileKey
     ? await getSignedUrl(claim.submissionFileKey).catch(() => null)
     : null;
+  const isLeader = viewerId != null && claim.members.some((member) => member.role === 'LEAD' && member.userId === viewerId);
 
   return {
     claimId: claim.id,
@@ -62,6 +73,9 @@ const buildRegistrationSummary = async (claim: ClaimSummaryInput) => {
       },
     })),
     submissionFileUrl,
+    pptUploaded: !!claim.submissionFileKey,
+    mentor: claim.mentor,
+    isLeader,
     submittedAt: claim.updatedAt.toISOString(),
     createdAt: claim.createdAt.toISOString(),
   };
@@ -100,6 +114,30 @@ const resolveEffectiveConfig = (config: unknown, eventType: string): EventDefaul
       ) as unknown as EventDefaultConfig)
     : null;
 
+// GET /api/innovation/events/[id]/register — registration meta for the form:
+// student info derived from the session uid (never re-typed) + profile phone.
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const user = authenticate(req);
+    if (!user) return errorRes('Unauthorized', [], 401);
+    if (!authorize(user, 'STUDENT')) return errorRes('Forbidden', ['Student access required'], 403);
+
+    const row = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { uid: true, phone: true },
+    });
+
+    return successRes({
+      uid: row?.uid ?? null,
+      derived: deriveStudentInfo(row?.uid ?? null),
+      phone: row?.phone ?? null,
+    });
+  } catch (err) {
+    console.error('Registration meta GET error:', err);
+    return errorRes('Internal server error', [], 500);
+  }
+}
+
 // POST /api/innovation/events/[id]/register
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -122,6 +160,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const memberUids = parseStringList((formData.get('memberUids') as string) || '').map((uid) => uid.toUpperCase());
     const problemId = Number(formData.get('problemId'));
     const pptFile = formData.get('pptFile') as File | null;
+    const mentor = ((formData.get('mentor') as string) || '').trim().toLowerCase().slice(0, 200);
+    if (mentor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mentor)) {
+      return errorRes('Invalid mentor email', ['Enter a valid faculty email address'], 400);
+    }
+    if (mentor) {
+      const mentorUser = await prisma.user.findFirst({
+        where: { email: mentor, role: { in: ['FACULTY', 'ADMIN'] }, status: 'ACTIVE', isVerified: true },
+        select: { id: true },
+      });
+      if (!mentorUser) {
+        return errorRes(
+          'Mentor not registered',
+          ['The mentor must be a registered teacher on the portal — please ask them to create an account first, then confirm their email here'],
+          400,
+        );
+      }
+    }
+    const rawPhone = ((formData.get('phone') as string) || '').trim();
+    const phone = normalizePhone(rawPhone);
+    // Manual fallback for unparseable UIDs (shown only when derivation fails).
+    const manualBranch = ((formData.get('manualBranch') as string) || '').trim().slice(0, 60);
+    const manualYear = ((formData.get('manualYear') as string) || '').trim().slice(0, 10);
+    const manualDivision = ((formData.get('manualDivision') as string) || '').trim().slice(0, 10);
+    const manualRoll = ((formData.get('manualRoll') as string) || '').trim().slice(0, 10);
 
     const event = await prisma.hackathonEvent.findUnique({ where: { id: eventId } });
 
@@ -130,7 +192,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       teamSize,
       teamLeadUid,
       memberUids,
-      problemId,
+      problemId: problemId > 0 ? problemId : undefined,
     });
 
     let parsedData: z.infer<typeof innovationEventRegisterSchema> | null = null;
@@ -176,10 +238,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const now = new Date();
     if (event.submissionLockAt && now > event.submissionLockAt) {
-      return errorRes('Submission window closed', ['Submissions are locked for this event'], 400);
+      return errorRes('Submission window closed', ['Submissions locked after the stated deadline — contact the coordinator if this is a mistake'], 400);
     }
     if (!event.registrationOpen || event.status === 'CLOSED' || now > event.endTime) {
-      return errorRes('Registration closed', ['Registration is closed after the event registration closing date'], 400);
+      return errorRes('Event registration is closed', [], 400);
+    }
+    if (event.status !== 'UPCOMING' && event.status !== 'ACTIVE') {
+      return errorRes('Event registration is closed', [`Registration is only open while the event is UPCOMING or ACTIVE (currently ${event.status})`], 400);
     }
 
     if (parsedData.teamSize !== parsedData.memberUids.length + 1) {
@@ -204,15 +269,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     let problem: { id: number; title: string } | null;
-    if (!requiresProblemSelection) {
+    // Open Innovation: a custom statement (no catalogue problemId) when the event allows it.
+    const allowOpenInnovation = regCfg ? !!regCfg.allowOpenInnovation : false;
+    const customTitle = ((formData.get('customProblemTitle') as string) || '').trim();
+    const customDescription = ((formData.get('customProblemDescription') as string) || '').trim();
+
+    if (allowOpenInnovation && !parsedData.problemId && customTitle) {
+      // validate
+      if (customTitle.length < 20 || customTitle.length > 180) {
+        return errorRes('Problem title too short', ['Give your problem statement a descriptive title (20–180 characters)'], 400);
+      }
+      if (customDescription.length < 50 || customDescription.length > 2000) {
+        return errorRes('Problem description too short', ['Describe the problem in at least 50 characters (max 2000)'], 400);
+      }
+      // duplicate check vs the event catalogue (incl. other custom submissions)
+      const catalogue = await prisma.problem.findMany({ where: { eventId }, select: { id: true, title: true } });
+      const exact = isDuplicateProblem(catalogue, customTitle);
+      if (exact) {
+        return errorRes(
+          'This problem statement already exists',
+          [`It matches: “${exact.title}” — please pick it from the catalogue instead`],
+          409,
+        );
+      }
+      const custom = await prisma.problem.create({
+        data: {
+          title: customTitle,
+          description: customDescription,
+          eventId,
+          isCustom: true,
+          status: 'OPENED',
+          mode: 'OPEN',
+          problemType: 'OPEN',
+          createdById: user.id,
+        },
+        select: { id: true, title: true },
+      });
+      problem = custom;
+    } else if (!requiresProblemSelection) {
       problem = await prisma.problem.findFirst({
-        where: { eventId },
+        where: { eventId, isCustom: false },
         select: { id: true, title: true },
       });
       if (!problem) return errorRes('This event has no problem statements to register against', [], 400);
     } else {
       problem = await prisma.problem.findFirst({
-        where: { id: parsedData.problemId, eventId },
+        where: { id: parsedData.problemId, eventId, isCustom: false },
         select: { id: true, title: true },
       });
       if (!problem) return errorRes('Invalid problem selection', ['Selected problem is not part of this event'], 400);
@@ -236,6 +338,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return errorRes('Invalid team lead', ['Team lead UID must be your own UID for this registration'], 400);
     }
 
+    if (rawPhone && !phone) {
+      return errorRes('Invalid phone number', ['Enter a valid 10-digit mobile number'], 400);
+    }
+
+    // Phone lives on the user profile (single source of truth) — save it there.
+    if (phone) {
+      await prisma.user
+        .update({ where: { id: user.id }, data: { phone } })
+        .catch(() => null);
+    }
+
     let members: { id: number; uid: string | null }[];
     if (parsedData.teamSize === 1) {
       // Solo registration: no member UID lookups needed — the lead (logged-in
@@ -250,15 +363,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         select: { id: true, uid: true },
       });
 
-      if (foundMembers.length !== allMemberUids.length) {
-        const foundUids = new Set(foundMembers.map((member) => member.uid).filter(Boolean));
-        const missingUids = allMemberUids.filter((uid) => !foundUids.has(uid));
+      // uid is NOT unique on User (legacy data) — dedupe by uid and compare
+      // SETS, never lengths, or duplicate rows break the check.
+      const membersByUid = new Map<string, { id: number; uid: string | null }>();
+      for (const member of foundMembers) {
+        if (member.uid && !membersByUid.has(member.uid)) membersByUid.set(member.uid, member);
+      }
+      const foundUids = new Set(membersByUid.keys());
+      const missingUids = allMemberUids.filter((uid) => !foundUids.has(uid));
+      if (missingUids.length > 0) {
         return errorRes('Invalid team members', [`These UIDs are not registered active students: ${missingUids.join(', ')}. Please register these users first.`], 400);
       }
-      members = foundMembers;
+      members = [...membersByUid.values()];
     }
 
     const memberIds = members.map((member) => member.id);
+
+    // Snapshot of UID-derived info at registration time — branch/year/division/roll
+    // are never re-typed by the student and never re-parsed later.
+    const leadDerived = deriveStudentInfo(currentStudent.uid);
+    const derivedInfo = {
+      lead:
+        leadDerived ??
+        ({ manual: { branch: manualBranch, year: manualYear, division: manualDivision, rollNo: manualRoll } } as const),
+      members: Object.fromEntries(
+        members.map((member) => [member.uid ?? `id:${member.id}`, deriveStudentInfo(member.uid)]),
+      ),
+    };
 
     const existingInEvent = await prisma.claimMember.findFirst({
       where: {
@@ -282,18 +413,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
 
     if (existingInEvent) {
-      const existingSummary = await buildRegistrationSummary({
-        id: existingInEvent.claim.id,
-        teamName: existingInEvent.claim.teamName,
-        createdAt: existingInEvent.claim.createdAt,
-        updatedAt: existingInEvent.claim.updatedAt,
-        submissionFileKey: existingInEvent.claim.submissionFileKey,
-        problem: {
-          id: existingInEvent.claim.problem.id,
-          title: existingInEvent.claim.problem.title,
+      const existingSummary = await buildRegistrationSummary(
+        {
+          id: existingInEvent.claim.id,
+          teamName: existingInEvent.claim.teamName,
+          createdAt: existingInEvent.claim.createdAt,
+          updatedAt: existingInEvent.claim.updatedAt,
+          submissionFileKey: existingInEvent.claim.submissionFileKey,
+          mentor: existingInEvent.claim.mentor,
+          problem: {
+            id: existingInEvent.claim.problem.id,
+            title: existingInEvent.claim.problem.title,
+          },
+          members: existingInEvent.claim.members,
         },
-        members: existingInEvent.claim.members,
-      });
+        user.id
+      );
 
       logActivity('INNOVATION_HACKATHON_REGISTER_REJECTED', {
         userId: user.id,
@@ -364,6 +499,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           problemId: problem.id,
           teamName: parsedData.teamName,
           submissionFileKey: fileKey,
+          mentor: mentor || null,
+          derivedInfo,
           status: 'SUBMITTED',
           members: {
             create: memberIds.map((memberId) => ({
@@ -388,15 +525,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // A duplicate slipped in between the fast-path check and the lock —
       // remove the just-uploaded file (best effort) and report the existing team.
       if (fileKey) await deleteFile(fileKey).catch(() => null);
-      const existingSummary = await buildRegistrationSummary({
-        id: result.existing.id,
-        teamName: result.existing.teamName,
-        createdAt: result.existing.createdAt,
-        updatedAt: result.existing.updatedAt,
-        submissionFileKey: result.existing.submissionFileKey,
-        problem: result.existing.problem,
-        members: result.existing.members,
-      });
+      const existingSummary = await buildRegistrationSummary(
+        {
+          id: result.existing.id,
+          teamName: result.existing.teamName,
+          createdAt: result.existing.createdAt,
+          updatedAt: result.existing.updatedAt,
+          submissionFileKey: result.existing.submissionFileKey,
+          mentor: result.existing.mentor,
+          problem: result.existing.problem,
+          members: result.existing.members,
+        },
+        user.id
+      );
 
       logActivity('INNOVATION_HACKATHON_REGISTER_REJECTED', {
         userId: user.id,
@@ -427,18 +568,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       teamSize: updated.members.length,
     });
 
-    const registrationSummary = await buildRegistrationSummary({
-      id: updated.id,
-      teamName: updated.teamName,
-      createdAt: updated.createdAt,
-      updatedAt: updated.updatedAt,
-      submissionFileKey: updated.submissionFileKey,
-      problem: {
-        id: updated.problem.id,
-        title: updated.problem.title,
+    const registrationSummary = await buildRegistrationSummary(
+      {
+        id: updated.id,
+        teamName: updated.teamName,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+        submissionFileKey: updated.submissionFileKey,
+        mentor: updated.mentor,
+        problem: {
+          id: updated.problem.id,
+          title: updated.problem.title,
+        },
+        members: updated.members,
       },
-      members: updated.members,
-    });
+      user.id
+    );
 
     return successRes(
       {
