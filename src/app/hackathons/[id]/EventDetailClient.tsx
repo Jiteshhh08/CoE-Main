@@ -130,8 +130,32 @@ export default function EventDetailClient({
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[] | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const [leaderDept, setLeaderDept] = useState<string>('');
+  const [round2ByDept, setR2ByDept] = useState<Record<string, { status?: string; startAt?: string; endAt?: string }>>({});
+  const [round1DeclaredByDept, setRound1DeclaredByDept] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (leaderDept !== '' || !myClaim) return;
+    const uid = (myClaim.members?.find((m: {role:string})=>m.role==='LEAD')?.uid ?? '').toString().trim().toUpperCase().replace(/&/g,'');
+    const mm = uid.match(/^(\d{2})-([A-Z]+)/);
+    let b = mm ? mm[1] : uid;
+    const mp: Record<string,string> = { CSECSA:'CSE',CSECSB:'CSE',CSECSC:'CSE',CSECS:'CSE',CSEIOT:'CSE',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECSA:'ECSA',ECS:'ECS',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVOC:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
+    for (const [k,v] of Object.entries(mp)) if (b.startsWith(k)) { b=v; break; }
+    if (b) setLeaderDept(b);
+  }, [myClaim, leaderDept]);
 
-  const isClosed = event.status === "CLOSED";
+  useEffect(() => {
+    if (event.status !== 'JUDGING') return;
+    fetch(`/api/innovation/events/${event.id}/ops/rounds`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((b) => {
+        if (b.success) {
+          setRound1DeclaredByDept(b.data.round1DeclaredByDept ?? {});
+          setR2ByDept(b.data.r2ByDept ?? {});
+        }
+      }).catch(() => null);
+  }, [event.id, event.status]);
+
+  const isClosed = event.status === 'CLOSED';
   const showRubrics = event.rubricCategories.length > 0;
   const teamSize = teamSizeLabel(event.config);
   const config = (event.config ?? {}) as ConfigShape;
@@ -141,7 +165,7 @@ export default function EventDetailClient({
     let cancelled = false;
     setLeaderboardLoading(true);
     setLeaderboardError(null);
-    fetch(`/api/innovation/events/${event.id}/leaderboard`, { credentials: "include" })
+    fetch(`/api/innovation/events/${event.id}/leaderboard${leaderDept ? `?dept=${encodeURIComponent(leaderDept)}` : ''}`, { credentials: "include" })
       .then(async (res) => {
         const payload = (await res.json()) as ApiEnvelope<LeaderboardRow[]>;
         if (!res.ok || !payload.success) {
@@ -161,7 +185,7 @@ export default function EventDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [isClosed, event.id]);
+  }, [isClosed, event.id, leaderDept]);
 
   const toggleInterest = async () => {
     if (interestLoading) return;
@@ -234,6 +258,13 @@ export default function EventDetailClient({
   const [pptUploading, setPptUploading] = useState(false);
   const [pptMessage, setPptMessage] = useState<string | null>(null);
 
+  // Team member editing (leader only, while the window is open)
+  const [memberUids, setMemberUids] = useState<string[]>(() => (myClaim?.members ?? []).filter((m) => m.role !== "LEAD").map((m) => m.uid ?? ""));
+  const [addQuery, setAddQuery] = useState("");
+  const [addSuggestions, setAddSuggestions] = useState<{ id: number; name: string; uid: string; derivedText?: string }[]>([]);
+  const [memberSaving, setMemberSaving] = useState(false);
+  const [memberMsg, setMemberMsg] = useState<string | null>(null);
+
   const handlePptReupload = async () => {
     if (!pptFile || !myClaim) return;
     setPptUploading(true);
@@ -258,6 +289,40 @@ export default function EventDetailClient({
       setPptMessage("Upload failed — please try again.");
     } finally {
       setPptUploading(false);
+    }
+  };
+
+  // ── Team member editing (leader only, while the window is open) ──
+  const fetchMemberSuggestions = (q: string) => {
+    if (q.trim().length < 4) {
+      setAddSuggestions([]);
+      return;
+    }
+    void fetch(`/api/innovation/students/lookup?q=${encodeURIComponent(q.trim())}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((b) => {
+        const items = (b?.data?.suggestions ?? []) as { id: number; name: string; uid: string; derivedText?: string }[];
+        setAddSuggestions(items.filter((s) => !memberUids.includes(s.uid)));
+      })
+      .catch(() => setAddSuggestions([]));
+  };
+
+  const saveMembers = async () => {
+    if (!myClaim) return;
+    setMemberSaving(true);
+    setMemberMsg(null);
+    try {
+      const res = await fetch(`/api/innovation/claims/${myClaim.claimId}/members`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ memberUids }),
+      });
+      const b = (await res.json().catch(() => null)) as { success?: boolean; message?: string; errors?: string[] } | null;
+      setMemberMsg(b?.errors?.[0] ?? b?.message ?? "Failed to update members.");
+      if (b?.success) setTimeout(() => window.location.reload(), 800);
+    } finally {
+      setMemberSaving(false);
     }
   };
 
@@ -296,9 +361,21 @@ export default function EventDetailClient({
                 <dd className="text-on-surface-variant">{myClaim.mentor ?? "—"}</dd>
               </div>
               <div className="flex flex-wrap gap-x-2">
+                <dt className="font-semibold text-on-surface">Venue:</dt>
+                <dd className="text-on-surface-variant">{myClaim.venue ? myClaim.venue.name : "Not assigned yet"}</dd>
+              </div>
+              <div className="flex flex-wrap gap-x-2">
                 <dt className="font-semibold text-on-surface">Presentation:</dt>
                 <dd className={myClaim.pptUploaded ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
-                  {myClaim.pptUploaded ? "Uploaded" : "Not uploaded"}
+                  {myClaim.pptUploaded ? (<a href={myClaim.submissionFileUrl ?? "#"} target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80">Download PPT</a>) : "Not uploaded"}
+                </dd>
+              </div>
+              <div className="flex flex-wrap gap-x-2">
+                <dt className="font-semibold text-on-surface">Presentation slot:</dt>
+                <dd className="font-semibold text-[#002155]">
+                  {myClaim.presentationScheduledAt
+                    ? new Date(myClaim.presentationScheduledAt).toLocaleString("en-IN", { dateStyle: "full", timeStyle: "short" })
+                    : "Not scheduled yet"}
                 </dd>
               </div>
             </dl>
@@ -354,14 +431,87 @@ export default function EventDetailClient({
                       {pptMessage}
                     </p>
                   ) : null}
-                </>
-              )}
-              <p className="mt-3 text-xs text-on-surface-variant">
-                For any other changes to your team, contact{" "}
-                <span className="font-bold text-on-surface">Raunak Singh — 9372499047</span>.
-              </p>
-            </div>
-          ) : (
+                  </>
+                  )}
+                  {!pptLocked ? (
+                  <div className="mt-3 border-t border-outline-variant/60 pt-3">
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted">Manage members</p>
+                  <p className="mt-1 text-xs text-on-surface-variant">
+                    Add or remove team members. Changes apply to everyone — only possible before the submission deadline.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {myClaim.members
+                      .filter((m) => m.role !== "LEAD")
+                      .map((member) => (
+                        <li key={member.uid ?? member.email} className="flex items-center justify-between gap-2 text-sm">
+                          <span>
+                            <span className="font-semibold text-on-surface">{member.name}</span>{" "}
+                            <span className="text-xs text-muted">{member.uid ?? member.email}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setMemberUids((prev) => prev.filter((u) => u !== member.uid))}
+                            className="text-xs font-bold text-red-600 underline hover:opacity-70"
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                  <div className="relative mt-2">
+                    <input
+                      type="text"
+                      className="w-full border border-outline-variant px-3 py-2 text-sm"
+                      placeholder="Add member by UID (type to search)…"
+                      value={addQuery}
+                      onChange={(e) => {
+                        setAddQuery(e.target.value);
+                        fetchMemberSuggestions(e.target.value);
+                      }}
+                    />
+                    {addSuggestions.length > 0 ? (
+                      <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto border border-outline-variant bg-white shadow-lg">
+                        {addSuggestions.slice(0, 8).map((s) => (
+                          <li key={s.id}>
+                            <button
+                              type="button"
+                              className="block w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-container"
+                              onClick={() => {
+                                setMemberUids((prev) => (prev.includes(s.uid) ? prev : [...prev, s.uid]));
+                                setAddQuery("");
+                                setAddSuggestions([]);
+                              }}
+                            >
+                              <span className="font-semibold">{s.name}</span>{" "}
+                              <span className="text-muted">{s.uid}</span>
+                              {s.derivedText ? <span className="ml-1 text-muted">· {s.derivedText}</span> : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                  {memberMsg ? (
+                    <p className={`mt-2 text-xs font-semibold ${memberMsg.startsWith("Team members updated") || memberMsg.includes("updated") ? "text-emerald-700" : "text-red-600"}`}>
+                      {memberMsg}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void saveMembers()}
+                    disabled={memberSaving}
+                    className="mt-3 bg-primary px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {memberSaving ? "Saving…" : "Save Members"}
+                  </button>
+                  </div>
+                  ) : null}
+                  <p className="mt-3 text-xs text-on-surface-variant">
+                  For any other changes to your team, contact{" "}
+                  <span className="font-bold text-on-surface">Raunak Singh — 9372499047</span>.
+                  </p>
+                  </div>
+                  ) : (
             <p className="border border-outline-variant bg-surface-container p-4 text-xs text-on-surface-variant">
               You're a team member on this registration — details are view-only. For any changes, ask your team lead
               (or contact Raunak Singh — 9372499047).
@@ -432,6 +582,12 @@ export default function EventDetailClient({
 
   return (
     <div className="py-8 md:py-10">
+      <EventOpsSections
+        eventId={event.id}
+        status={event.status}
+        ops={(((event.config ?? {}) as { ops?: { notices?: boolean; feedback?: boolean; mediaReport?: boolean } }).ops ?? {})}
+      />
+
       {/* ── Meta grid ─────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-px border border-outline-variant bg-outline-variant md:grid-cols-4">
         {metaItems.map((item) => (
@@ -668,6 +824,14 @@ export default function EventDetailClient({
                 </p>
               ) : (
                 <div className="mt-4 overflow-x-auto">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-outline-variant/60 py-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted">Dept:</span>
+                    <select className="border border-outline-variant bg-white px-2 py-1 text-xs" value={leaderDept} onChange={(e) => setLeaderDept(e.target.value)}>
+                      <option value="">All departments</option>
+                      {['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','MCA','BCA','IOT'].map((d) => (<option key={d} value={d}>{d}</option>))}
+                    </select>
+                    <span className="text-xs text-muted">({leaderboard?.length ?? 0} teams)</span>
+                  </div>
                   <table className="w-full border-collapse text-left text-sm">
                     <thead>
                       <tr className="border-b-2 border-primary">
@@ -706,6 +870,7 @@ export default function EventDetailClient({
                               </div>
                             ) : null}
                           </td>
+                          <td className="py-3 pr-4 text-on-surface-variant">{(row as unknown as {dept?:string}).dept ?? '—'}</td>
                           <td className="py-3 pr-4 text-on-surface-variant">{row.problemTitle}</td>
                           <td className="py-3 font-bold text-primary">{row.score}</td>
                         </tr>
@@ -723,11 +888,7 @@ export default function EventDetailClient({
         <EventStatusPill status={event.status} /> {eventTypeLabel(event.eventType)} · Event #{event.id}
       </p>
 
-      <EventOpsSections
-        eventId={event.id}
-        status={event.status}
-        ops={(((event.config ?? {}) as { ops?: { notices?: boolean; feedback?: boolean; mediaReport?: boolean } }).ops ?? {})}
-      />
+
     </div>
   );
 }

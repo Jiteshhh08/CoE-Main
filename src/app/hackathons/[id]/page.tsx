@@ -37,7 +37,10 @@ export type ClaimPayload = {
   problemId: number;
   problem: { id: number; title: string } | null;
   mentor: string | null;
+  venue: { id: number; name: string } | null;
+  presentationScheduledAt: string | null;
   pptUploaded: boolean;
+  submissionFileUrl: string | null;
   isLeader: boolean;
   members: { role: string; name: string; uid: string | null; email: string }[];
 } | null;
@@ -151,7 +154,9 @@ export default async function HackathonEventDetailPage({
               teamName: true,
               problemId: true,
               mentor: true,
+              venue: { select: { id: true, name: true } },
               submissionFileKey: true,
+              presentationScheduledAt: true,
               problem: { select: { id: true, title: true } },
               members: {
                 select: {
@@ -179,7 +184,10 @@ export default async function HackathonEventDetailPage({
         problemId: claimMember.claim.problemId,
         problem: claimMember.claim.problem,
         mentor: claimMember.claim.mentor,
+        venue: claimMember.claim.venue ?? null,
+        presentationScheduledAt: claimMember.claim.presentationScheduledAt?.toISOString() ?? null,
         pptUploaded: !!claimMember.claim.submissionFileKey,
+        submissionFileUrl: claimMember.claim.submissionFileKey ? await getSignedUrl(claimMember.claim.submissionFileKey).catch(() => null) : null,
         isLeader: claimMember.claim.members.some((m) => m.role === 'LEAD' && m.userId === viewerUserId),
         members: claimMember.claim.members.map((m) => ({
           role: m.role,

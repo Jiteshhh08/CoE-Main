@@ -143,7 +143,7 @@ export async function PATCH(req: NextRequest) {
       if (eventIds.length > 0) {
         const rubricRows = await prisma.rubricCategory.findMany({
           where: { eventId: { in: eventIds } },
-          orderBy: { order: 'asc' },
+          orderBy: [{ parentCategoryId: 'asc' }, { order: 'asc' }],
           select: { id: true, eventId: true, key: true, label: true, weight: true },
         });
 
@@ -210,14 +210,15 @@ export async function PATCH(req: NextRequest) {
               if (typeof score !== 'number') continue;
               await tx.rubricScore.upsert({
                 where: {
-                  claimId_rubricCategoryId_round: {
+                  claimId_rubricCategoryId_round_judgeId: {
                     claimId: claim.id,
                     rubricCategoryId: category.id,
                     round: 1,
+                    judgeId: 0,
                   },
                 },
                 update: { score },
-                create: { claimId: claim.id, rubricCategoryId: category.id, score, round: 1 },
+                create: { claimId: claim.id, rubricCategoryId: category.id, score, round: 1, judgeId: 0 },
               });
             }
           }

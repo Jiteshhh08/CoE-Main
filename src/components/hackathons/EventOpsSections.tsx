@@ -33,7 +33,7 @@ export default function EventOpsSections({
   };
 
   const load = useCallback(() => {
-    if (ops.notices) {
+    if (ops.notices !== false) {
       void fetch(`/api/innovation/events/${eventId}/ops/notices`, { credentials: "include" })
         .then((r) => r.json())
         .then((b: Api<{ notices: NoticeRow[] }>) => {
@@ -86,7 +86,7 @@ export default function EventOpsSections({
         </div>
       ) : null}
 
-      {ops.notices && visibleNotices.length > 0 ? (
+      {visibleNotices.length > 0 ? (
         <section className={sectionCls}>
           <h3 className="font-headline text-xl text-[#002155]">Notices</h3>
           <div className="mt-3 space-y-3">
