@@ -383,8 +383,8 @@ function OverviewTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m
 }
 
 /* ── Venues ────────────────────────────────────────────────────────────── */
-type VenueRow = { id: number; name: string; capacity: number | null; order: number; departmentCode: string | null; _count: { claims: number }; claims: { id: number; teamName: string | null; status: string; presentationScheduledAt: string | null; members: { role: string; user: { name: string; uid: string | null } }[] }[] };
-type ClaimLite = { id: number; teamName: string | null; status: string; presentationScheduledAt: string | null; members: { role: string; user: { name: string; uid: string | null; email: string } }[] };
+type VenueRow = { id: number; name: string; capacity: number | null; order: number; departmentCode: string | null; _count: { claims: number }; claims: { id: number; teamName: string | null; status: string; presentationScheduledAt: string | null; round2VenueId: number | null; round2Venue: { id: number; name: string } | null; members: { role: string; user: { name: string; uid: string | null } }[] }[] };
+type ClaimLite = { id: number; teamName: string | null; status: string; presentationScheduledAt: string | null; round2VenueId: number | null; round2Venue: { id: number; name: string } | null; members: { role: string; user: { name: string; uid: string | null; email: string } }[] };
 
 function VenuesTab({ eventId, notify }: { eventId: number; notify: (m: string) => void }) {
   const [venues, setVenues] = useState<VenueRow[]>([]);
@@ -548,7 +548,7 @@ function VenuesTab({ eventId, notify }: { eventId: number; notify: (m: string) =
           <input className={inputCls} placeholder="Capacity (optional)" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
           <select className={inputCls} value={venueDept} onChange={(e) => setVenueDept(e.target.value)} title="Department">
             <option value="">All depts (shared)</option>
-            <option value="COMP">COMP</option><option value="IT">IT</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="AIDS">AIDS</option><option value="ECSA">ECSA</option><option value="ENTC">ENTC</option><option value="MME">MME</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option><option value="BVOC">BVOC</option><option value="MCA">MCA</option><option value="BCA">BCA</option><option value="IOT">IOT</option>
+            <option value="COMP">COMP</option><option value="IT">IT</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="AIDS">AIDS</option><option value="ECSA">ECSA</option><option value="ENTC">ENTC</option><option value="MME">MME</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option><option value="BVOC">BVOC</option><option value="BVDSD">BVDSD</option><option value="MCA">MCA</option><option value="BCA">BCA</option><option value="IOT">IOT</option>
           </select>
           <button type="button" onClick={() => void create()} className={btnCls}>
             Add Venue
@@ -578,7 +578,7 @@ function VenuesTab({ eventId, notify }: { eventId: number; notify: (m: string) =
                       void fetch(`/api/innovation/events/${eventId}/ops/venues/${v.id}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ departmentCode: to }) }).then((r) => r.json()).then((b: Api<unknown>) => { notify((b as Api<unknown>).message); if ((b as Api<unknown>).success) load(); });
                     }}>
                       <option value="">All</option>
-                      <option value="COMP">COMP</option><option value="IT">IT</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="AIDS">AIDS</option><option value="ECSA">ECSA</option><option value="ENTC">ENTC</option><option value="MME">MME</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option><option value="BVOC">BVOC</option><option value="MCA">MCA</option><option value="BCA">BCA</option><option value="IOT">IOT</option>
+                      <option value="COMP">COMP</option><option value="IT">IT</option><option value="CSE">CSE</option><option value="AIML">AIML</option><option value="AIDS">AIDS</option><option value="ECSA">ECSA</option><option value="ENTC">ENTC</option><option value="MME">MME</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option><option value="BVOC">BVOC</option><option value="BVDSD">BVDSD</option><option value="MCA">MCA</option><option value="BCA">BCA</option><option value="IOT">IOT</option>
                     </select>
                     <button type="button" onClick={() => void remove(v.id, v.name)} className="text-xs font-bold uppercase tracking-wider text-red-600 hover:underline">
                       Delete
@@ -597,6 +597,11 @@ function VenuesTab({ eventId, notify }: { eventId: number; notify: (m: string) =
                             <span className="text-[#747782]">·</span>
                             <span>{lead ? `${lead.name} · ${lead.uid ?? "—"}` : "—"}</span>
                             <span className="text-[#002155]/60">· {c.status}</span>
+                            {c.status === 'SHORTLISTED' ? (
+                              <span className="rounded bg-[#0b6b2e]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#0b6b2e]">
+                                R2{c.round2Venue ? `: ${c.round2Venue.name}` : ''}
+                              </span>
+                            ) : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <select className="border border-[#c4c6d3] bg-white px-1.5 py-1 text-[11px]" value={claimVenuePick[c.id] ?? String(v.id)} onChange={(e) => setClaimVenuePick((m) => ({ ...m, [c.id]: e.target.value }))}>
@@ -937,6 +942,8 @@ type ScoreClaim = {
   problem: { id: number; title: string } | null;
   presentationScheduledAt: string | null;
   submissionFileKey: string | null;
+  round2VenueId: number | null;
+  round2Venue: { id: number; name: string } | null;
   rubricScores: ScoreRow[];
   members: { role: string; user: { name: string; email: string; uid: string | null } }[];
 };
@@ -967,7 +974,7 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
   const [problemBusy, setProblemBusy] = useState(false);
   const [pptBusy, setPptBusy] = useState<Record<number, boolean>>({});
   const [venues, setVenues] = useState<{ id: number; name: string }[]>([]);
-  const deptCodes = ['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','MCA','BCA','IOT'];
+  const deptCodes = ['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','BVDSD','MCA','BCA','IOT'];
 
   const load = useCallback(() => {
     void fetch(`/api/innovation/events/${eventId}/ops/rounds`, { credentials: "include" })
@@ -1150,6 +1157,34 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
     } finally { setRoundBusy(false); }
   };
 
+  const undoDeclare = async (dept: string) => {
+    setRoundBusy(true);
+    try {
+      const res = await fetch(`/api/innovation/events/${eventId}/ops/rounds/declare`, {
+        method: "DELETE", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dept }),
+      });
+      const b = (await res.json()) as Api<{ dept: string }>;
+      notify(b.success ? `${dept} declaration undone` : b.message);
+      if (b.success) load();
+    } finally { setRoundBusy(false); }
+  };
+
+  const closeDeptR2 = async (dept: string) => {
+    setRoundBusy(true);
+    try {
+      const res = await fetch(`/api/innovation/events/${eventId}/ops/rounds/close-dept`, {
+        method: "POST", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dept }),
+      });
+      const b = (await res.json()) as Api<{ dept: string }>;
+      notify(b.success ? `${dept} R2 completed` : b.message);
+      if (b.success) load();
+    } finally { setRoundBusy(false); }
+  };
+
   const openRound2 = async () => {
     setRoundBusy(true);
     try {
@@ -1166,6 +1201,39 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
 
   const toggleAdvance = (claimId: number) => {
     setAdvanceSel((s) => { const next = new Set(s); if (next.has(claimId)) next.delete(claimId); else next.add(claimId); return next; });
+  };
+
+  const deselectFromR2 = async (claimId: number) => {
+    setRoundBusy(true);
+    try {
+      const res = await fetch(`/api/innovation/events/${eventId}/ops/rounds/advance`, {
+        method: "DELETE", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ claimIds: [claimId] }),
+      });
+      const b = (await res.json()) as Api<{ removed: number }>;
+      notify(b.success ? "Team removed from R2" : b.message);
+      if (b.success) load();
+    } finally { setRoundBusy(false); }
+  };
+
+  const [r2VenuePick, setR2VenuePick] = useState<Record<number, string>>({});
+  const [r2VenueBusy, setR2VenueBusy] = useState<Record<number, boolean>>({});
+
+  const updateR2Venue = async (claimId: number) => {
+    const raw = r2VenuePick[claimId];
+    if (raw === undefined) return;
+    setR2VenueBusy((m) => ({ ...m, [claimId]: true }));
+    try {
+      const res = await fetch(`/api/innovation/events/${eventId}/ops/rounds/advance`, {
+        method: 'PUT', credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimId, round2VenueId: raw === '__none' ? null : raw || null }),
+      });
+      const b = (await res.json()) as Api<unknown>;
+      notify(b.success ? 'Venue updated' : b.message);
+      if (b.success) load();
+    } finally { setR2VenueBusy((m) => ({ ...m, [claimId]: false })); }
   };
 
   const uploadPpt = async (claimId: number, file: File | null) => {
@@ -1200,13 +1268,21 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
             const dept = (document.getElementById(`export-dept-${eventId}`) as HTMLSelectElement | null)?.value ?? "";
             const url = `/api/innovation/events/${eventId}/ops/scores/export${dept ? `?dept=${encodeURIComponent(dept)}` : ""}`;
             window.open(url, "_blank");
-          }}>Download Excel (CSV)</button>
+          }}>R{round ?? "?"} CSV</button>
+          <button type="button" className={btnGhost + " px-4 py-1.5 text-[10px]"} onClick={() => {
+            const dept = (document.getElementById(`export-dept-${eventId}`) as HTMLSelectElement | null)?.value ?? "";
+            window.open(`/api/innovation/events/${eventId}/ops/scores/export?phase=1${dept ? `&dept=${encodeURIComponent(dept)}` : ""}`, "_blank");
+          }}>R1 CSV</button>
+          <button type="button" className={btnGhost + " px-4 py-1.5 text-[10px]"} onClick={() => {
+            const dept = (document.getElementById(`export-dept-${eventId}`) as HTMLSelectElement | null)?.value ?? "";
+            window.open(`/api/innovation/events/${eventId}/ops/scores/export?phase=2${dept ? `&dept=${encodeURIComponent(dept)}` : ""}`, "_blank");
+          }}>R2 CSV</button>
         </div>
       </div>
       <p className="mt-1 text-sm text-[#434651]">
         Live totals from judges. Overrides are allowed while the event is in JUDGING and are logged with the reason.
       </p>
-      {round === 1 ? (
+      {round != null ? (
         <div className="mt-4 border-t border-[#c4c6d3] pt-4 space-y-3">
           <p className="text-xs font-bold text-[#002155]">Phase 1 Status by Department</p>
           <div className="flex items-center gap-2">
@@ -1226,12 +1302,20 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
                 <div key={dept} className="border border-[#e3e2df] bg-[#faf9f5] px-3 py-2 text-xs">
                   <p className="font-bold text-[#002155]">{dept}</p>
                   {declared ? (
-                    <p className="mt-1 text-[10px] text-[#0b6b2e] font-semibold">✓ Declared</p>
+                    <div className="mt-1 flex items-center gap-1">
+                      <span className="text-[10px] text-[#0b6b2e] font-semibold">✓ Declared</span>
+                      {!r2ByDept[dept] ? (
+                        <button type="button" onClick={() => void undoDeclare(dept)} disabled={roundBusy} className="text-[9px] font-bold text-[#ba1a1a] underline hover:opacity-70 disabled:opacity-50">Undo</button>
+                      ) : null}
+                    </div>
                   ) : (
                     <button type="button" onClick={() => void declareRound1(dept)} disabled={roundBusy} className="mt-1 px-2 py-1 text-[10px] font-bold text-[#8c4f00] border border-[#8c4f00] hover:bg-[#8c4f00]/5 disabled:opacity-50">Declare R1</button>
                   )}
                   {r2?.status === 'open' ? (
-                    <p className="mt-1 text-[10px] text-[#0b6b2e]">Phase 2 Open</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <p className="text-[10px] text-[#0b6b2e] font-semibold">Phase 2 Open</p>
+                      <button type="button" onClick={() => void closeDeptR2(dept)} disabled={roundBusy} className="px-2 py-0.5 text-[9px] font-bold border border-[#002155] text-[#002155] hover:bg-[#002155]/5 disabled:opacity-50">Complete R2</button>
+                    </div>
                   ) : declared ? (
                     <span className="text-[10px] text-[#747782]">Ready for R2</span>
                   ) : null}
@@ -1255,7 +1339,7 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
           <p className="text-[11px] text-[#747782]">Select teams below to advance, then click Open Round 2.</p>
         </div>
       ) : null}
-      {declareDept && round1DeclaredByDept[declareDept] && !r2ByDept[declareDept]?.status ? (
+      {declareDept && round1DeclaredByDept[declareDept] ? (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-1 text-[11px] text-[#747782]">
             <input type="checkbox" checked={advanceSel.size === claims.length && claims.length > 0} onChange={() => setAdvanceSel(advanceSel.size === claims.length ? new Set() : new Set(claims.map((c) => c.id)))} className="accent-[#0b6b2e]" />
@@ -1265,12 +1349,12 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
           <button type="button" onClick={() => void openRound2()} disabled={roundBusy} className={btnCls + " bg-[#0b6b2e]"}>Open Round 2 ({declareDept})</button>
         </div>
       ) : null}
-      {Object.entries(r2ByDept).filter(([, v]) => v.status === 'open').length > 0 ? (
+      {Object.keys(r2ByDept).length > 0 ? (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[#c4c6d3] pt-4">
-          <p className="text-xs font-bold text-[#0b6b2e]">Phase 2 Open:</p>
-          {Object.entries(r2ByDept).filter(([, v]) => v.status === 'open').map(([dept, v]) => (
-            <span key={dept} className="rounded bg-[#0b6b2e]/10 px-2 py-1 text-[10px] font-bold text-[#0b6b2e]">
-              {dept}{v.startAt ? ` (${new Date(v.startAt).toLocaleDateString('en-IN')})` : ''}
+          <p className="text-xs font-bold text-[#002155]">Phase 2 Status:</p>
+          {Object.entries(r2ByDept).map(([dept, v]) => (
+            <span key={dept} className={`rounded px-2 py-1 text-[10px] font-bold ${v.status === 'open' ? 'bg-[#0b6b2e]/10 text-[#0b6b2e]' : 'bg-[#c4c6d3]/30 text-[#747782]'}`}>
+              {dept}: {v.status === 'open' ? 'R2 Open' : v.status ?? 'pending'}{v.startAt ? ` (${new Date(v.startAt).toLocaleDateString('en-IN')})` : ''}
             </span>
           ))}
         </div>
@@ -1283,12 +1367,28 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
             <div key={claim.id} className="border border-[#e3e2df] bg-[#faf9f5] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  {declareDept && round1DeclaredByDept[declareDept] && !r2ByDept[declareDept]?.status ? (
+                  {declareDept && round1DeclaredByDept[declareDept] ? (
                     <input type="checkbox" checked={advanceSel.has(claim.id)} onChange={() => toggleAdvance(claim.id)} className="accent-[#0b6b2e]" />
                   ) : null}
                   <p className="font-bold text-[#002155]">{claim.teamName ?? `Team #${claim.id}`}</p>
                   {claim.status === 'SHORTLISTED' ? (
-                    <span className="ml-2 rounded bg-[#0b6b2e]/10 px-2 py-0.5 text-[10px] font-bold uppercase text-[#0b6b2e]">R2 Advanced</span>
+                    <>
+                      <span className="ml-2 rounded bg-[#0b6b2e]/10 px-2 py-0.5 text-[10px] font-bold uppercase text-[#0b6b2e]">R2 Advanced</span>
+                      {declareDept && round1DeclaredByDept[declareDept] ? (
+                        <button type="button" onClick={() => void deselectFromR2(claim.id)} disabled={roundBusy} className="ml-1 text-[10px] font-bold text-[#ba1a1a] underline hover:opacity-70 disabled:opacity-40">Remove</button>
+                      ) : null}
+                      <select
+                        className="ml-2 border border-[#c4c6d3] bg-white px-1.5 py-1 text-[10px]"
+                        value={r2VenuePick[claim.id] ?? claim.round2VenueId ?? ''}
+                        onChange={(e) => { setR2VenuePick((m) => ({ ...m, [claim.id]: e.target.value })); void updateR2Venue(claim.id); }}
+                        disabled={!!r2VenueBusy[claim.id]}
+                      >
+                        <option value="">No R2 venue</option>
+                        {venues.map((v) => (
+                          <option key={v.id} value={String(v.id)}>{v.name}{v.id === claim.round2VenueId ? ' (current)' : ''}</option>
+                        ))}
+                      </select>
+                    </>
                   ) : null}
                 </div>
                 <p className="text-xs text-[#434651]">

@@ -17,9 +17,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // ACTIVE/JUDGING (leaderboard.visibleAfter per-event setting).
     const visibleAfter = (event.config as { leaderboard?: { visibleAfter?: 'CLOSED' | 'LIVE' } } | null)
       ?.leaderboard?.visibleAfter ?? 'CLOSED';
+    const opsCfg = ((event.config as { ops?: Record<string, unknown> } | null)?.ops ?? {}) as Record<string, unknown>;
+    const anyDeptDeclared = Object.keys((opsCfg.round1DeclaredByDept ?? {}) as Record<string, unknown>).length > 0;
     const visibleNow =
       event.status === 'CLOSED' ||
-      (visibleAfter === 'LIVE' && (event.status === 'ACTIVE' || event.status === 'JUDGING'));
+      (visibleAfter === 'LIVE' && (event.status === 'ACTIVE' || event.status === 'JUDGING')) ||
+      (event.status === 'JUDGING' && anyDeptDeclared);
 
     if (!visibleNow) {
       return errorRes('Leaderboard not available', ['Leaderboard is not visible for this event stage'], 400);
@@ -64,7 +67,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const _map: Record<string,string> = { CSECSA:'CSE',CSECSB:'CSE',CSECSC:'CSE',CSECS:'CSE',CSEIOT:'CSE',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECSA:'ECSA',ECS:'ECS',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVOC:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
       const raw2 = (leadUid ?? '').toString().trim().toUpperCase().replace(/&/g,'');
       const mm = raw2.match(/^(\d{2})-([A-Z]+)/);
-      let b2 = mm ? mm[1] : raw2;
+      let b2 = mm ? mm[2] : raw2;
       let deptCode = b2;
       for (const [k,v] of Object.entries(_map)) if (b2.startsWith(k)) { deptCode=v; break; }
       return {

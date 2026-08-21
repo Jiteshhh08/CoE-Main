@@ -28,6 +28,8 @@ type LeaderboardRow = {
   problemTitle: string;
   score: number;
   updatedAt: string;
+  dept: string;
+  phase: number;
   comments: string[];
   members: { id: number; name: string; email: string; role: string }[];
 };
@@ -131,14 +133,15 @@ export default function EventDetailClient({
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [leaderDept, setLeaderDept] = useState<string>('');
+  const [leaderPhase, setLeaderPhase] = useState<number>(0); // 0=latest, 1=R1, 2=R2
   const [round2ByDept, setR2ByDept] = useState<Record<string, { status?: string; startAt?: string; endAt?: string }>>({});
   const [round1DeclaredByDept, setRound1DeclaredByDept] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (leaderDept !== '' || !myClaim) return;
     const uid = (myClaim.members?.find((m: {role:string})=>m.role==='LEAD')?.uid ?? '').toString().trim().toUpperCase().replace(/&/g,'');
     const mm = uid.match(/^(\d{2})-([A-Z]+)/);
-    let b = mm ? mm[1] : uid;
-    const mp: Record<string,string> = { CSECSA:'CSE',CSECSB:'CSE',CSECSC:'CSE',CSECS:'CSE',CSEIOT:'CSE',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECSA:'ECSA',ECS:'ECS',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVOC:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
+    let b = mm ? mm[2] : uid;
+    const mp: Record<string,string> = { CSECSA:'CSE',CSECSB:'CSE',CSECSC:'CSE',CSECS:'CSE',CSEIOT:'CSE',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECSA:'ECSA',ECS:'ECS',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVOC:'BVOC',BVDSD:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
     for (const [k,v] of Object.entries(mp)) if (b.startsWith(k)) { b=v; break; }
     if (b) setLeaderDept(b);
   }, [myClaim, leaderDept]);
@@ -161,11 +164,13 @@ export default function EventDetailClient({
   const config = (event.config ?? {}) as ConfigShape;
 
   useEffect(() => {
-    if (!isClosed) return;
+    // Always fetch — backend gates visibility. Removed round1DeclaredByDept
+    // dependency to avoid the race where empty state blocks the fetch.
     let cancelled = false;
     setLeaderboardLoading(true);
     setLeaderboardError(null);
-    fetch(`/api/innovation/events/${event.id}/leaderboard${leaderDept ? `?dept=${encodeURIComponent(leaderDept)}` : ''}`, { credentials: "include" })
+    const phaseQs = leaderPhase > 0 ? `&phase=${leaderPhase}` : '';
+    fetch(`/api/innovation/events/${event.id}/leaderboard${leaderDept ? `?dept=${encodeURIComponent(leaderDept)}` : ''}${phaseQs}`, { credentials: "include" })
       .then(async (res) => {
         const payload = (await res.json()) as ApiEnvelope<LeaderboardRow[]>;
         if (!res.ok || !payload.success) {
@@ -185,7 +190,7 @@ export default function EventDetailClient({
     return () => {
       cancelled = true;
     };
-  }, [isClosed, event.id, leaderDept]);
+  }, [isClosed, event.id, leaderDept, leaderPhase]);
 
   const toggleInterest = async () => {
     if (interestLoading) return;
@@ -808,9 +813,9 @@ export default function EventDetailClient({
           {activeTab === "leaderboard" ? (
             <div>
               <h3 className="font-headline text-xl font-bold text-primary">Leaderboard</h3>
-              {!isClosed ? (
+              {!isClosed && Object.keys(round1DeclaredByDept).length === 0 ? (
                 <p className="mt-4 border border-dashed border-outline-variant bg-surface-container p-6 text-sm text-on-surface-variant">
-                  Results will be published after the event closes.
+                  Loading leaderboard...
                 </p>
               ) : leaderboardLoading ? (
                 <div className="mt-4 h-40 animate-pulse border border-outline-variant bg-surface-container" />
@@ -828,8 +833,15 @@ export default function EventDetailClient({
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted">Dept:</span>
                     <select className="border border-outline-variant bg-white px-2 py-1 text-xs" value={leaderDept} onChange={(e) => setLeaderDept(e.target.value)}>
                       <option value="">All departments</option>
-                      {['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','MCA','BCA','IOT'].map((d) => (<option key={d} value={d}>{d}</option>))}
+                      {['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','BVDSD','MCA','BCA','IOT'].map((d) => (<option key={d} value={d}>{d}</option>))}
                     </select>
+                    {Object.keys(round1DeclaredByDept).length > 0 ? (
+                      <select className="border border-outline-variant bg-white px-2 py-1 text-xs" value={leaderPhase} onChange={(e) => setLeaderPhase(Number(e.target.value))}>
+                        <option value={0}>Latest</option>
+                        <option value={1}>Round 1</option>
+                        {Object.keys(round2ByDept).length > 0 ? <option value={2}>Round 2</option> : null}
+                      </select>
+                    ) : null}
                     <span className="text-xs text-muted">({leaderboard?.length ?? 0} teams)</span>
                   </div>
                   <table className="w-full border-collapse text-left text-sm">
@@ -870,7 +882,10 @@ export default function EventDetailClient({
                               </div>
                             ) : null}
                           </td>
-                          <td className="py-3 pr-4 text-on-surface-variant">{(row as unknown as {dept?:string}).dept ?? '—'}</td>
+                          <td className="py-3 pr-4 text-on-surface-variant">
+                            <span>{(row as any).dept ?? '—'}</span>
+                            {(row as any).phase === 2 ? <span className="ml-1 rounded bg-[#0b6b2e]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#0b6b2e]">R2</span> : null}
+                          </td>
                           <td className="py-3 pr-4 text-on-surface-variant">{row.problemTitle}</td>
                           <td className="py-3 font-bold text-primary">{row.score}</td>
                         </tr>
