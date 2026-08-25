@@ -212,14 +212,24 @@ function _normDept(uid: string | null | undefined): string {
 
   return claims
     .map((claim) => {
-      // phase=0 (latest): use finalScore if set, else calc from rubric
-      // phase>0 (explicit round): always calc from that round's rubric, ignore finalScore
+      // phase=0 (latest): R2 teams show finalScore, R1 teams calc from rubric
+      // phase=1 (R1): calc from R1 rubric only, skip teams with no R1 rubric
+      // phase=2 (R2): show finalScore only, skip teams with no finalScore
+      if (phase === 2) {
+        if (claim.finalScore === null) return null; // no R2 score
+        return { claim, score: claim.finalScore };
+      }
+      if (phase === 1) {
+        const r1Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 1);
+        if (r1Scores.length === 0) return null; // no R1 rubric data
+      }
       if (phase === 0 && claim.finalScore !== null) return { claim, score: claim.finalScore };
       if (claim.rubricScores.length === 0) return { claim, score: claim.score ?? 0 };
       // Binary weighted: average YES rate per parent across judges, weighted by parent
       const lastRound = Math.max(...(claim.rubricScores as { round: number }[]).map((s) => s.round));
       const targetRound = phase > 0 ? phase : lastRound;
       const lastRoundScores = (claim.rubricScores as { round: number; score: number; rubricCategoryId: number; judgeId: number }[]).filter((s) => s.round === targetRound);
+      if (lastRoundScores.length === 0) return null; // no scores for this round
       if (!isBinary) {
         const byRound = new Map<number, number>();
         for (const s of lastRoundScores) byRound.set(s.round, (byRound.get(s.round) ?? 0) + s.score);
@@ -243,6 +253,7 @@ function _normDept(uid: string | null | undefined): string {
       }
       return { claim, score: Math.round(finalScore) };
     })
+    .filter((item: any): item is { claim: any; score: number } => item !== null)
     .sort((a, b) => b.score - a.score || a.claim.updatedAt.getTime() - b.claim.updatedAt.getTime())
     .map(({ claim, score }, index) => ({
       rank: index + 1,
