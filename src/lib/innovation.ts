@@ -221,7 +221,11 @@ function _normDept(uid: string | null | undefined): string {
       }
       if (phase === 1) {
         const r1Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 1);
-        if (r1Scores.length === 0) return null; // no R1 rubric data
+        if (r1Scores.length === 0) {
+          // Fallback: use claim.score (e.g. manually entered R1 total)
+          if (claim.score !== null && claim.score !== 0) return { claim, score: claim.score };
+          return null; // no R1 data at all
+        }
       }
       if (phase === 0 && claim.finalScore !== null) return { claim, score: claim.finalScore };
       if (claim.rubricScores.length === 0) return { claim, score: claim.score ?? 0 };
