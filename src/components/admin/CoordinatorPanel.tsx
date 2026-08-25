@@ -400,15 +400,19 @@ function VenuesTab({ eventId, notify }: { eventId: number; notify: (m: string) =
   const deptFromUid = (uid: string): string => {
     const m = uid.match(/^\d{2}-([A-Z&]+)/);
     if (!m) return "Other";
-    const b = m[1];
+    const raw = m[1].replace(/&/g, '');
     const map: Record<string, string> = {
+      CSECSA: "ECS", CSECSB: "ECS", CSECSC: "ECS", CSECS: "ECS",
+      CSEA: "CSE", CSEB: "CSE", CSEC: "CSE",
       COMP: "Computer Engg", IT: "Information Tech", CSE: "CSE",
-      AIML: "AI & ML", "AI&ML": "AI & ML", AIDS: "AI & DS", "A&DS": "AI & DS",
-      ECSA: "E&CS", ECS: "E&CS", EXT: "E&TC", ENTC: "E&TC",
+      AIML: "AI & ML", AIDS: "AI & DS",
+      ECS: "ECS",
+      EXTCA: "E&TC", EXTCB: "E&TC", ENTCB: "E&TC", ENTCA: "E&TC", EXTC: "E&TC", ENTC: "E&TC", EXT: "E&TC",
       MME: "Mechanical", MECH: "Mechanical", BCA: "BCA", IOT: "IoT",
+      BVDSD: "BVOC", BVSDE: "BVOC", BVOC: "BVOC", MCA: "MCA", CIVIL: "Civil",
     };
-    for (const [k, v] of Object.entries(map)) { if (b.startsWith(k)) return v; }
-    return b;
+    for (const [k, v] of Object.entries(map)) { if (raw.startsWith(k)) return v; }
+    return raw;
   };
 
   const filteredUnassigned = deptFilter ? unassigned.filter((c) => {
@@ -974,7 +978,7 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
   const [problemBusy, setProblemBusy] = useState(false);
   const [pptBusy, setPptBusy] = useState<Record<number, boolean>>({});
   const [venues, setVenues] = useState<{ id: number; name: string }[]>([]);
-  const deptCodes = ['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MECH','CIVIL','BVOC','BVDSD','MCA','BCA','IOT'];
+  const deptCodes = ['COMP','IT','CSE','AIML','AIDS','ECS','ENTC','MECH','CIVIL','BVOC','MCA','BCA','IOT'];
 
   const load = useCallback(() => {
     void fetch(`/api/innovation/events/${eventId}/ops/rounds`, { credentials: "include" })

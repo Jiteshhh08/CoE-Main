@@ -190,9 +190,11 @@ export const getEventLeaderboard = async (prisma: PrismaClient, eventId: number,
 
 // ponytail: dept normalization mirrors hackathon-ops.normalizeDeptCode — longest CSE prefixes first
 const _DEPT_MAP: Record<string, string> = {
-  CSECSA: 'CSE', CSECSB: 'CSE', CSECSC: 'CSE', CSECS: 'CSE', CSEIOT: 'CSE', CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
-  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECSA: 'ECSA', ECS: 'ECS',
-  EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC', MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
+  CSECSA: 'ECS', CSECSB: 'ECS', CSECSC: 'ECS', CSECS: 'ECS',
+  CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
+  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECS: 'ECS',
+  EXTCA: 'ENTC', EXTCB: 'ENTC', ENTCB: 'ENTC', ENTCA: 'ENTC', EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC',
+  MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVDSD: 'BVOC', BVSDE: 'BVOC', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
 };
 function _normDept(uid: string | null | undefined): string {
   if (!uid) return '';
@@ -210,7 +212,9 @@ function _normDept(uid: string | null | undefined): string {
 
   return claims
     .map((claim) => {
-      if (claim.finalScore !== null) return { claim, score: claim.finalScore };
+      // phase=0 (latest): use finalScore if set, else calc from rubric
+      // phase>0 (explicit round): always calc from that round's rubric, ignore finalScore
+      if (phase === 0 && claim.finalScore !== null) return { claim, score: claim.finalScore };
       if (claim.rubricScores.length === 0) return { claim, score: claim.score ?? 0 };
       // Binary weighted: average YES rate per parent across judges, weighted by parent
       const lastRound = Math.max(...(claim.rubricScores as { round: number }[]).map((s) => s.round));

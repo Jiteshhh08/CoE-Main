@@ -17,9 +17,11 @@ const excelText = (v: string): string => {
 
 // ponytail: dept norm mirrors hackathon-ops.normalizeDeptCode — longest CSE prefixes first
 const _DEPT_MAP: Record<string, string> = {
-  CSECSA: 'CSE', CSECSB: 'CSE', CSECSC: 'CSE', CSECS: 'CSE', CSEIOT: 'CSE', CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
-  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECSA: 'ECSA', ECS: 'ECS',
-  EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC', MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
+  CSECSA: 'ECS', CSECSB: 'ECS', CSECSC: 'ECS', CSECS: 'ECS',
+  CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
+  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECS: 'ECS',
+  EXTCA: 'ENTC', EXTCB: 'ENTC', ENTCB: 'ENTC', ENTCA: 'ENTC', EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC',
+  MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVDSD: 'BVOC', BVSDE: 'BVOC', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
 };
 function _normDeptCode(v: string): string {
   const up = v.trim().toUpperCase().replace(/&/g, '');
