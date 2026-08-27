@@ -216,8 +216,10 @@ function _normDept(uid: string | null | undefined): string {
       // phase=1 (R1): calc from R1 rubric only, skip teams with no R1 rubric
       // phase=2 (R2): show finalScore only, skip teams with no finalScore
       if (phase === 2) {
-        if (claim.finalScore === null) return null; // no R2 score
-        return { claim, score: claim.finalScore };
+        if (claim.finalScore !== null) return { claim, score: claim.finalScore };
+        // Fallback: calculate from R2 rubric scores
+        const r2Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 2);
+        if (r2Scores.length === 0) return null; // no R2 data at all
       }
       if (phase === 1) {
         const r1Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 1);
