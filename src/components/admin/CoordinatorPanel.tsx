@@ -1053,8 +1053,8 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
     } finally { setProblemBusy(false); }
   };
 
-  const override = async (claimId: number, categoryId: number) => {
-    const key = `${claimId}:${categoryId}`;
+  const override = async (claimId: number, categoryId: number, round: number = 1) => {
+    const key = `${claimId}:${categoryId}:${round}`;
     const score = Number(overrides[key]);
     const reason = (reasons[key] ?? "").trim();
     if (!Number.isInteger(score) || !reason) {
@@ -1065,7 +1065,7 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
       method: "PUT",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ claimId, categoryId, score, reason }),
+      body: JSON.stringify({ claimId, categoryId, score, reason, round }),
     });
     const b = (await res.json()) as Api<unknown>;
     notify(b.success ? "Score updated" : b.message);
@@ -1518,70 +1518,80 @@ function ScoresTab({ eventId, notify, isAdmin }: { eventId: number; notify: (m: 
                   const isBinary = categories.some((c) => c.parentCategoryId !== null);
                   if (isBinary) {
                     const parents = categories.filter((c) => c.parentCategoryId === null);
-                    let yes = 0;
+                    // Split scores by round
+                    const r1Scores = claim.rubricScores.filter((s) => (s as any).round === 1);
+                    const r2Scores = claim.rubricScores.filter((s) => (s as any).round === 2);
+                    const renderRound = (scores: typeof claim.rubricScores, round: number) => {
+                      let yes = 0;
+                      return (
+                        <>
+                          {parents.map((parent) => {
+                            const children = categories.filter((c) => c.parentCategoryId === parent.id);
+                            const yesInParam = children.reduce((sum, ch) => { const rows = scores.filter((s) => s.rubricCategory.id === ch.id); if (rows.length === 0) return sum; const avg = rows.reduce((a,b)=>a+b.score,0)/rows.length; return sum + avg; }, 0);
+                            const paramScore = ((yesInParam / Math.max(children.length, 1)) * parent.weight).toFixed(1);
+                            yes += yesInParam;
+                            return (
+                              <div key={parent.id} className="border border-[#e3e2df] bg-white px-3 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-xs font-bold uppercase tracking-wider text-[#002155]">{parent.label}</p>
+                                  <span className="text-[11px] text-[#747782]">{yesInParam}/{children.length} YES — {paramScore}/{parent.weight}</span>
+                                </div>
+                                <div className="mt-2 space-y-1.5">
+                                  {children.map((child) => {
+                                    const row = scores.find((s) => s.rubricCategory.id === child.id);
+                                    const key = `${claim.id}:${child.id}:${round}`;
+                                    const val = row?.score;
+                                    return (
+                                      <div key={child.id} className="flex flex-wrap items-center gap-2 border border-[#e3e2df] bg-[#faf9f5] px-2 py-1.5">
+                                        <span className="text-xs text-[#434651] min-w-0 flex-1">{child.label} {child.isCritical ? <span className="ml-1 font-bold text-[#8c4f00]">★</span> : null}</span>
+                                        <span className={`px-2 py-1 text-[11px] font-bold uppercase tracking-wider border ${val === 1 ? "border-[#0b6b2e] bg-[#0b6b2e] text-white" : val === 0 ? "border-[#8b0000] bg-[#8b0000] text-white" : "border-[#c4c6d3] bg-white text-[#747782]"}`}>{val === 1 ? "YES" : val === 0 ? "NO" : "—"}</span>
+                                        <input type="number" min={0} max={1} placeholder="0/1" className="w-14 border border-[#c4c6d3] px-2 py-1 text-sm" value={overrides[key] ?? ""} onChange={(e) => setOverrides((p) => ({ ...p, [key]: e.target.value }))} />
+                                        <input placeholder="reason" className="w-24 border border-[#c4c6d3] px-2 py-1 text-xs" value={reasons[key] ?? ""} onChange={(e) => setReasons((p) => ({ ...p, [key]: e.target.value }))} />
+                                        <button type="button" onClick={() => void override(claim.id, child.id, round)} className={btnGhost + " px-2 py-1 text-[10px]"}>Override</button>
+                                        {row?.comment?.startsWith("[OVERRIDE]") ? <span className="text-[10px] text-[#8c4f00]">(ovrd)</span> : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div className="flex justify-end border-t border-[#e3e2df] pt-2">
+                            <span className="text-xs font-bold text-[#002155]">R{round}: {yes}/25 YES — {scores.length > 0 ? new Set(scores.map((s) => (s as any).judgeId ?? 0)).size : 0} judge(s)</span>
+                          </div>
+                        </>
+                      );
+                    };
                     return (
-                      <>
-                        {parents.map((parent) => {
-                          const children = categories.filter((c) => c.parentCategoryId === parent.id);
-                          const yesInParam = children.reduce((sum, ch) => { const rows = claim.rubricScores.filter((s) => s.rubricCategory.id === ch.id); if (rows.length === 0) return sum; const avg = rows.reduce((a,b)=>a+b.score,0)/rows.length; return sum + avg; }, 0);
-                          const paramScore = ((yesInParam / Math.max(children.length, 1)) * parent.weight).toFixed(1);
-                          yes += yesInParam;
-                          return (
-                            <div key={parent.id} className="border border-[#e3e2df] bg-white px-3 py-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-xs font-bold uppercase tracking-wider text-[#002155]">{parent.label}</p>
-                                <span className="text-[11px] text-[#747782]">{yesInParam}/{children.length} YES — {paramScore}/{parent.weight}</span>
-                              </div>
-                              <div className="mt-2 space-y-1.5">
-                                {children.map((child) => {
-                                  const row = claim.rubricScores.find((s) => s.rubricCategory.id === child.id);
-                                  const key = `${claim.id}:${child.id}`;
-                                  const val = row?.score;
-                                  return (
-                                    <div key={child.id} className="flex flex-wrap items-center gap-2 border border-[#e3e2df] bg-[#faf9f5] px-2 py-1.5">
-                                      <span className="text-xs text-[#434651] min-w-0 flex-1">{child.label} {child.isCritical ? <span className="ml-1 font-bold text-[#8c4f00]">★</span> : null}</span>
-                                      <span className={`px-2 py-1 text-[11px] font-bold uppercase tracking-wider border ${val === 1 ? "border-[#0b6b2e] bg-[#0b6b2e] text-white" : val === 0 ? "border-[#8b0000] bg-[#8b0000] text-white" : "border-[#c4c6d3] bg-white text-[#747782]"}`}>{val === 1 ? "YES" : val === 0 ? "NO" : "—"}</span>
-                                      {(() => { const all = claim.rubricScores.filter((s) => s.rubricCategory.id === child.id); const judgeIds = new Set(all.map((s) => (s as any).judgeId ?? 0)); return judgeIds.size > 1 ? <span className="text-[10px] text-[#747782]">{all.map((s) => `${(s as any).judge?.name ?? 'J' + String((s as any).judgeId ?? 0)}: ${s.score ? 'YES':'NO'}`).join(' · ')}</span> : null; })()}
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        max={1}
-                                        placeholder="0/1"
-                                        className="w-14 border border-[#c4c6d3] px-2 py-1 text-sm"
-                                        value={overrides[key] ?? ""}
-                                        onChange={(e) => setOverrides((p) => ({ ...p, [key]: e.target.value }))}
-                                      />
-                                      <input placeholder="reason" className="w-28 border border-[#c4c6d3] px-2 py-1 text-xs" value={reasons[key] ?? ""} onChange={(e) => setReasons((p) => ({ ...p, [key]: e.target.value }))} />
-                                      <button type="button" onClick={() => void override(claim.id, child.id)} className={btnGhost + " px-2 py-1 text-[10px]"}>Override</button>
-                                      {row?.comment?.startsWith("[OVERRIDE]") ? <span className="text-[10px] text-[#8c4f00]">(override)</span> : null}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        <div className="flex justify-end border-t border-[#e3e2df] pt-2">
-                          <span className="text-xs font-bold text-[#002155]">Total: {yes}/25 YES — averaged across {new Set(claim.rubricScores.map((s) => (s as any).judgeId ?? 0)).size} judge(s)</span>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#002155] mb-2">Round 1</p>
+                          {renderRound(r1Scores, 1)}
                         </div>
-                      </>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#002155] mb-2">Round 2</p>
+                          {r2Scores.length > 0 ? renderRound(r2Scores, 2) : <p className="text-[11px] text-[#747782]">No R2 scores yet</p>}
+                        </div>
+                      </div>
                     );
                   }
                   // Legacy flat categories fallback
                   return (
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       {categories.map((cat) => {
-                        const scoreRow = claim.rubricScores.find((s) => s.rubricCategory.id === cat.id);
-                        const key = `${claim.id}:${cat.id}`;
+                        const r1Row = claim.rubricScores.find((s) => s.rubricCategory.id === cat.id && (s as any).round === 1);
+                        const r2Row = claim.rubricScores.find((s) => s.rubricCategory.id === cat.id && (s as any).round === 2);
                         return (
                           <div key={cat.id} className="flex flex-wrap items-center gap-2 border border-[#e3e2df] bg-white px-3 py-2">
                             <div className="min-w-40 flex-1">
                               <p className="text-xs font-semibold text-[#002155]">{cat.label}</p>
-                              <p className="text-[11px] text-[#747782]">Judge score: {scoreRow ? scoreRow.score : "—"} / {cat.weight}{scoreRow?.comment?.startsWith("[OVERRIDE]") ? " (override)" : ""}</p>
+                              <p className="text-[11px] text-[#747782]">R1: {r1Row ? r1Row.score : "—"} | R2: {r2Row ? r2Row.score : "—"} / {cat.weight}</p>
                             </div>
-                            <input type="number" min={0} max={cat.weight} placeholder={String(cat.weight)} className="w-20 border border-[#c4c6d3] px-2 py-1 text-sm" value={overrides[key] ?? ""} onChange={(e) => setOverrides((p) => ({ ...p, [key]: e.target.value }))} />
-                            <input placeholder="reason" className="w-36 border border-[#c4c6d3] px-2 py-1 text-xs" value={reasons[key] ?? ""} onChange={(e) => setReasons((p) => ({ ...p, [key]: e.target.value }))} />
-                            <button type="button" onClick={() => void override(claim.id, cat.id)} className={btnGhost + " px-3 py-1 text-[10px]"}>Override</button>
+                            <input type="number" min={0} max={cat.weight} placeholder={`R1/${cat.weight}`} className="w-16 border border-[#c4c6d3] px-2 py-1 text-xs" value={overrides[`${claim.id}:${cat.id}:1`] ?? ""} onChange={(e) => setOverrides((p) => ({ ...p, [`${claim.id}:${cat.id}:1`]: e.target.value }))} />
+                            <input type="number" min={0} max={cat.weight} placeholder={`R2/${cat.weight}`} className="w-16 border border-[#c4c6d3] px-2 py-1 text-xs" value={overrides[`${claim.id}:${cat.id}:2`] ?? ""} onChange={(e) => setOverrides((p) => ({ ...p, [`${claim.id}:${cat.id}:2`]: e.target.value }))} />
+                            <input placeholder="reason" className="w-28 border border-[#c4c6d3] px-2 py-1 text-xs" value={reasons[`${claim.id}:${cat.id}:1`] ?? reasons[`${claim.id}:${cat.id}:2`] ?? ""} onChange={(e) => setReasons((p) => ({ ...p, [`${claim.id}:${cat.id}:1`]: e.target.value, [`${claim.id}:${cat.id}:2`]: e.target.value }))} />
+                            <button type="button" onClick={() => void override(claim.id, cat.id, 1)} className={btnGhost + " px-2 py-1 text-[10px]"}>R1</button>
+                            <button type="button" onClick={() => void override(claim.id, cat.id, 2)} className={btnGhost + " px-2 py-1 text-[10px]"}>R2</button>
                           </div>
                         );
                       })}
