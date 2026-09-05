@@ -113,52 +113,6 @@ export default function HackathonsBrowsePage() {
           </p>
         </header>
 
-        {/* ── Featured story: TCET Internal Hackathon – SIH 2026 (completed) ── */}
-        <Link
-          href="/hackathons/sih-2026"
-          className="group mt-7 flex flex-col overflow-hidden border border-hairline bg-white transition-colors hover:border-primary md:flex-row"
-          aria-label="Featured story: TCET Internal Hackathon SIH 2026 — read the full news article"
-        >
-          <div className="relative h-48 w-full shrink-0 overflow-hidden bg-primary md:h-auto md:w-[42%]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/sih-2026/sih-2026-hero.jpg"
-              alt="TCET Internal Hackathon SIH 2026 hero"
-              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.02]"
-              width={640}
-              height={360}
-            />
-            <div className="absolute left-3 top-3 flex items-center gap-2">
-              <span className="bg-primary px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white">
-                Featured story
-              </span>
-              <span className="bg-secondary-container px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-on-secondary-container">
-                Completed · 17th–22nd
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-1 flex-col p-5 md:p-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center border border-outline-variant px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-on-surface-variant">
-                Hackathon · News
-              </span>
-              <span className="font-mono text-[11px] text-muted">TCET, Mumbai · 254 students · 14 departments</span>
-            </div>
-            <h2 className="mt-2 font-headline text-xl font-bold leading-tight text-primary group-hover:underline decoration-2 underline-offset-4 md:text-2xl">
-              TCET Internal Hackathon – SIH 2026: From Complex Engineering Problems to Innovative Solutions
-            </h2>
-            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-on-surface-variant">
-              A fully digital innovation journey — two rounds, 50 teams shortlisted for the national SIH 2026 stage, and a showcase of interdisciplinary collaboration and real-world problem solving.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
-                Read the full story <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">→</span>
-              </span>
-              <span className="font-mono text-[11px] text-muted">50 teams shortlisted · SIH journey continues</span>
-            </div>
-          </div>
-        </Link>
-
         {/* ── Categories (data-driven: only types with events + active) ── */}
         <div className="mt-7">
           <CategoryChips

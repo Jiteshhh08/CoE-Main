@@ -55,22 +55,6 @@ export default function EventHero({ event }: { event: EventCardData }) {
           {event.title}
         </h1>
 
-        {/* SIH 2026 cross-link — preserve original event page while surfacing the news story */}
-        {event.title.toLowerCase().includes("sih") ? (
-          <div className="mt-4 inline-flex flex-wrap items-center gap-3 border border-white/15 bg-white/10 px-3 py-2 backdrop-blur-sm">
-            <span className="inline-flex items-center gap-1.5 bg-secondary-container px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-on-secondary-container">
-              Completed · Story
-            </span>
-            <span className="text-sm text-white">This event has concluded — read the full story.</span>
-            <Link
-              href="/hackathons/sih-2026"
-              className="inline-flex items-center gap-1 border border-white/30 px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-white transition-colors hover:bg-white hover:text-primary"
-            >
-              Read SIH 2026 story →
-            </Link>
-          </div>
-        ) : null}
-
         {event.description ? (
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-white/80 md:text-base">
             {splitDescription(event.description).map((part, partIndex) =>
