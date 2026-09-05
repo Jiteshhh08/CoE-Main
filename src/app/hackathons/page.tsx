@@ -151,49 +151,6 @@ export default async function HackathonsLandingPage() {
         </div>
       </section>
 
-      {/* ── Featured story: SIH 2026 completed ─────────────── */}
-      <section className="mx-auto max-w-6xl px-4 pt-8 md:px-8">
-        <Link
-          href="/hackathons/sih-2026"
-          className="group flex flex-col overflow-hidden border border-hairline bg-white transition-colors hover:border-primary md:flex-row"
-          aria-label="Featured story: TCET Internal Hackathon SIH 2026 — completed 17th to 22nd, 254 students, 50 teams shortlisted"
-        >
-          <div className="relative h-48 w-full shrink-0 overflow-hidden bg-primary md:h-auto md:w-[42%]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/sih-2026/sih-2026-hero.jpg"
-              alt=""
-              className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.02]"
-              width={640}
-              height={360}
-            />
-            <div className="absolute left-3 top-3 flex items-center gap-2">
-              <span className="bg-primary px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-white">
-                Featured story
-              </span>
-              <span className="bg-secondary-container px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-on-secondary-container">
-                Completed · 17th–22nd
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-1 flex-col p-5 md:p-6">
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-secondary">News · Hackathon</p>
-            <h2 className="mt-1 font-headline text-xl font-bold leading-tight text-primary group-hover:underline decoration-2 underline-offset-4 md:text-2xl">
-              TCET Internal Hackathon – SIH 2026: From Complex Engineering Problems to Innovative Solutions
-            </h2>
-            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-on-surface-variant">
-              254 students across 14 departments. Two rounds, real-world problem statements, interdisciplinary teams and 50 teams shortlisted for the national stage.
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
-              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
-                Read the story <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">→</span>
-              </span>
-              <span className="font-mono text-[11px] text-muted">TCET, Mumbai · MIC, Govt. of India</span>
-            </div>
-          </div>
-        </Link>
-      </section>
-
       {/* ── Events (featured + upcoming in one grid) ───────── */}
       <section className="mx-auto max-w-6xl px-4 pt-12 md:px-8">
         <div className="mb-5 flex items-end justify-between gap-4">
