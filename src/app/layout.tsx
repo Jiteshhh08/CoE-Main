@@ -4,6 +4,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import GoogleOneTap from "@/components/GoogleOneTap";
 import "./globals.css";
 
+import { Suspense } from "react";
 import Navbar from "@/components/Navbar";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import Footer from "@/components/Footer";
@@ -110,7 +111,9 @@ export default async function RootLayout({
             impersonatedBy={impersonationBannerData?.impersonatedBy ?? null}
             impersonatingAs={impersonationBannerData?.impersonatingAs ?? null}
           />
-          <Navbar user={user} />
+          <Suspense fallback={null}>
+            <Navbar user={user} />
+          </Suspense>
           {children}
           {user?.role === 'STUDENT' && <ProfileCompletionModal />}
           {user?.role === 'FACULTY' && !isPrincipalUser && <FacultyProfileCompletionModal />}
@@ -120,7 +123,9 @@ export default async function RootLayout({
           <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
         )}
         {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && !user && (
-          <GoogleOneTap clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID} />
+          <Suspense fallback={null}>
+            <GoogleOneTap clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID} />
+          </Suspense>
         )}
       </body>
     </html>
