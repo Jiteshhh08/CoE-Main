@@ -46,12 +46,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const cfg = (event.config as { registration?: Record<string, unknown> } | null)?.registration ?? {};
     const allowOpenInnovation = cfg.allowOpenInnovation === true;
     // Pick latest round's scores per claim (so round 1 shows when round 2 has no scores yet)
-    const enrichedClaims = filteredClaims.map((c) => {
-      if (c.rubricScores.length === 0) return c;
-      const lastRound = Math.max(...c.rubricScores.map((s) => s.round));
-      return { ...c, rubricScores: c.rubricScores.filter((s) => s.round === lastRound) };
-    });
-    return successRes({ categories, claims: enrichedClaims, round, problems, allowOpenInnovation });
+    // Return ALL rubric scores (both rounds) so coordinator can see/edit per round
+    return successRes({ categories, claims: filteredClaims, round, problems, allowOpenInnovation });
   } catch (err) {
     console.error('scores GET error:', err);
     return errorRes('Internal server error', [], 500);
@@ -94,7 +90,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return errorRes('Score exceeds category cap', [`Max for “${category.label}” is ${category.weight}`], 400);
     }
 
-    const round = currentRound(event);
+    const roundParam = body?.round != null ? Number(body.round) : null;
+    const round = roundParam && roundParam > 0 ? roundParam : currentRound(event);
     // Coordinator override: record against the coordinator's own judgeId so per-judge averaging keeps it.
     const overrideJudgeId = user.id;
     const updated = await prisma.rubricScore.upsert({

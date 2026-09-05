@@ -64,7 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           .filter((c) => c.length > 0 && !c.startsWith('[OVERRIDE]'));
       }
       const leadUid = (claim?.members?.find((m: {role:string}) => m.role==='LEAD') as {user:{uid:string|null}}|undefined)?.user.uid ?? null;
-      const _map: Record<string,string> = { CSECSA:'CSE',CSECSB:'CSE',CSECSC:'CSE',CSECS:'CSE',CSEIOT:'CSE',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECSA:'ECSA',ECS:'ECS',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVOC:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
+      const _map: Record<string,string> = { CSECSA:'ECS',CSECSB:'ECS',CSECSC:'ECS',CSECS:'ECS',CSEA:'CSE',CSEB:'CSE',CSEC:'CSE',COMP:'COMP',IT:'IT',CSE:'CSE',AIML:'AIML',AIDS:'AIDS',ECS:'ECS',EXTCA:'ENTC',EXTCB:'ENTC',ENTCB:'ENTC',ENTCA:'ENTC',EXTC:'ENTC',ENTC:'ENTC',EXT:'ENTC',MME:'MME',MECH:'MECH',CIVIL:'CIVIL',BVDSD:'BVOC',BVSDE:'BVOC',BVOC:'BVOC',MCA:'MCA',BCA:'BCA',IOT:'IOT' };
       const raw2 = (leadUid ?? '').toString().trim().toUpperCase().replace(/&/g,'');
       const mm = raw2.match(/^(\d{2})-([A-Z]+)/);
       let b2 = mm ? mm[2] : raw2;

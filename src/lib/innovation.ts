@@ -190,9 +190,11 @@ export const getEventLeaderboard = async (prisma: PrismaClient, eventId: number,
 
 // ponytail: dept normalization mirrors hackathon-ops.normalizeDeptCode — longest CSE prefixes first
 const _DEPT_MAP: Record<string, string> = {
-  CSECSA: 'CSE', CSECSB: 'CSE', CSECSC: 'CSE', CSECS: 'CSE', CSEIOT: 'CSE', CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
-  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECSA: 'ECSA', ECS: 'ECS',
-  EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC', MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
+  CSECSA: 'ECS', CSECSB: 'ECS', CSECSC: 'ECS', CSECS: 'ECS',
+  CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
+  COMP: 'COMP', IT: 'IT', CSE: 'CSE', AIML: 'AIML', AIDS: 'AIDS', ECS: 'ECS',
+  EXTCA: 'ENTC', EXTCB: 'ENTC', ENTCB: 'ENTC', ENTCA: 'ENTC', EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC',
+  MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL', BVDSD: 'BVOC', BVSDE: 'BVOC', BVOC: 'BVOC', MCA: 'MCA', BCA: 'BCA', IOT: 'IOT',
 };
 function _normDept(uid: string | null | undefined): string {
   if (!uid) return '';
@@ -210,12 +212,30 @@ function _normDept(uid: string | null | undefined): string {
 
   return claims
     .map((claim) => {
-      if (claim.finalScore !== null) return { claim, score: claim.finalScore };
+      // phase=0 (latest): R2 teams show finalScore, R1 teams calc from rubric
+      // phase=1 (R1): calc from R1 rubric only, skip teams with no R1 rubric
+      // phase=2 (R2): show finalScore only, skip teams with no finalScore
+      if (phase === 2) {
+        if (claim.finalScore !== null) return { claim, score: claim.finalScore };
+        // Fallback: calculate from R2 rubric scores
+        const r2Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 2);
+        if (r2Scores.length === 0) return null; // no R2 data at all
+      }
+      if (phase === 1) {
+        const r1Scores = (claim.rubricScores as { round: number }[]).filter((s) => s.round === 1);
+        if (r1Scores.length === 0) {
+          // Fallback: use claim.score (e.g. manually entered R1 total)
+          if (claim.score !== null && claim.score !== 0) return { claim, score: claim.score };
+          return null; // no R1 data at all
+        }
+      }
+      if (phase === 0 && claim.finalScore !== null) return { claim, score: claim.finalScore };
       if (claim.rubricScores.length === 0) return { claim, score: claim.score ?? 0 };
       // Binary weighted: average YES rate per parent across judges, weighted by parent
       const lastRound = Math.max(...(claim.rubricScores as { round: number }[]).map((s) => s.round));
       const targetRound = phase > 0 ? phase : lastRound;
       const lastRoundScores = (claim.rubricScores as { round: number; score: number; rubricCategoryId: number; judgeId: number }[]).filter((s) => s.round === targetRound);
+      if (lastRoundScores.length === 0) return null; // no scores for this round
       if (!isBinary) {
         const byRound = new Map<number, number>();
         for (const s of lastRoundScores) byRound.set(s.round, (byRound.get(s.round) ?? 0) + s.score);
@@ -239,6 +259,7 @@ function _normDept(uid: string | null | undefined): string {
       }
       return { claim, score: Math.round(finalScore) };
     })
+    .filter((item: any): item is { claim: any; score: number } => item !== null)
     .sort((a, b) => b.score - a.score || a.claim.updatedAt.getTime() - b.claim.updatedAt.getTime())
     .map(({ claim, score }, index) => ({
       rank: index + 1,

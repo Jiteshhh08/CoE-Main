@@ -52,11 +52,13 @@ export function canJudgeClaim(assignment: { venueId: number | null }, claimVenue
 
 const DEPT_FROM_BRANCH: Record<string, string> = {
   // longest prefixes first (checked in insertion order) — prevents stale shadowing
-  CSECSA: 'CSE', CSECSB: 'CSE', CSECSC: 'CSE', CSECS: 'CSE', CSEIOT: 'CSE', CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
+  CSECSA: 'ECS', CSECSB: 'ECS', CSECSC: 'ECS', CSECS: 'ECS',
+  CSEA: 'CSE', CSEB: 'CSE', CSEC: 'CSE',
   COMP: 'COMP', IT: 'IT', CSE: 'CSE',
-  AIML: 'AIML', AIDS: 'AIDS', ECSA: 'ECSA', ECS: 'ECS',
-  EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC', MME: 'MME', MECH: 'MECH',
-  CIVIL: 'CIVIL', BVSDE: 'BVOC', BVSDS: 'BVOC', BVOC: 'BVOC', MCA: 'MCA',
+  AIML: 'AIML', AIDS: 'AIDS', ECS: 'ECS',
+  EXTCA: 'ENTC', EXTCB: 'ENTC', ENTCB: 'ENTC', ENTCA: 'ENTC', EXTC: 'ENTC', ENTC: 'ENTC', EXT: 'ENTC',
+  MME: 'MME', MECH: 'MECH', CIVIL: 'CIVIL',
+  BVDSD: 'BVOC', BVSDE: 'BVOC', BVSDS: 'BVOC', BVOC: 'BVOC', MCA: 'MCA',
   BCA: 'BCA', IOT: 'IOT',
 };
 
@@ -73,7 +75,7 @@ export function deptFromUid(uid: string | null | undefined): string | null {
   return raw; // fallback: raw branch string
 }
 
-export const DEPARTMENT_CODES = ['COMP','IT','CSE','AIML','AIDS','ECSA','ENTC','MME','MECH','CIVIL','BVOC','MCA','BCA','IOT'] as const;
+export const DEPARTMENT_CODES = ['COMP','IT','CSE','AIML','AIDS','ECS','ENTC','MME','MECH','CIVIL','BVOC','MCA','BCA','IOT'] as const;
 export type DepartmentCode = typeof DEPARTMENT_CODES[number];
 
 /** Normalize a coordinator's departmentCode from DB (null/empty = global = all depts). */
@@ -82,8 +84,11 @@ export function normalizeDeptCode(v: string | null | undefined): string | null {
   const up = v.trim().toUpperCase();
   if (!up) return null;
   if (up === 'EXTC' || up === 'EXT') return 'ENTC';
-  // also handle any stray CSE variant codes passed explicitly
-  if (up.startsWith('CSE')) return 'CSE';
+  if (up === 'EXTCA' || up === 'EXTCB') return 'ENTC';
+  if (up === 'BVDSD' || up === 'BVSDE' || up === 'BVSDS') return 'BVOC';
+  // CSECS variants → ECSx, plain CSE variants → CSE
+  if (up.startsWith('CSECS')) return 'ECS';
+  if (up.startsWith('CSE')) return 'CSE';  // CSEA/B/C and plain CSE all → CSE
   return up.replace(/&/g, '');
 }
 
