@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type Api<T> = { success: boolean; message: string; data: T };
 type NoticeRow = { id: number; title: string; body: string; pinned: boolean; createdAt: string };
+type NewsRow = { id: number; title: string; caption: string; imageKey: string; pinned: boolean; createdAt: string };
 type MediaRow = { id: number; kind: string; fileKey: string; caption: string | null; createdAt: string };
 
 const storageUrl = (fileKey: string) =>
@@ -18,9 +19,10 @@ export default function EventOpsSections({
 }: {
   eventId: number;
   status: string;
-  ops: { notices?: boolean; feedback?: boolean; mediaReport?: boolean };
+  ops: { notices?: boolean; news?: boolean; feedback?: boolean; mediaReport?: boolean };
 }) {
   const [notices, setNotices] = useState<NoticeRow[] | null>(null);
+  const [news, setNews] = useState<NewsRow[] | null>(null);
   const [media, setMedia] = useState<MediaRow[] | null>(null);
   const [mine, setMine] = useState<{ rating: number; comment: string | null } | null>(null);
   const [rating, setRating] = useState(0);
@@ -40,6 +42,13 @@ export default function EventOpsSections({
           if (b.success) setNotices(b.data.notices);
         });
     }
+    if (ops.news !== false) {
+      void fetch(`/api/innovation/events/${eventId}/ops/news`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((b: Api<{ news: NewsRow[] }>) => {
+          if (b.success) setNews(b.data.news);
+        });
+    }
     if (ops.mediaReport) {
       void fetch(`/api/innovation/events/${eventId}/ops/media`, { credentials: "include" })
         .then((r) => r.json())
@@ -54,7 +63,7 @@ export default function EventOpsSections({
           if (b.success && b.data.mine) setMine(b.data.mine);
         });
     }
-  }, [eventId, ops.notices, ops.mediaReport, ops.feedback]);
+  }, [eventId, ops.notices, ops.news, ops.mediaReport, ops.feedback]);
   useEffect(load, [load]);
 
   const submitFeedback = async () => {
@@ -100,6 +109,30 @@ export default function EventOpsSections({
                 <p className="mt-1 text-[11px] text-[#747782]">
                   {new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {(news ?? []).length > 0 ? (
+        <section className={sectionCls}>
+          <h3 className="font-headline text-xl text-[#002155]">News</h3>
+          <div className="mt-3 space-y-4">
+            {(news ?? []).map((n) => (
+              <div key={n.id} className="overflow-hidden border border-[#e3e2df] bg-[#faf9f5]">
+                <div className="aspect-[16/9] w-full overflow-hidden bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={storageUrl(n.imageKey)} alt={n.title} className="h-full w-full object-contain" />
+                </div>
+                <div className="p-3">
+                  <p className="font-semibold text-[#002155]">
+                    {n.pinned ? "📌 " : ""}
+                    {n.title}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.caption}</p>
+                  <p className="mt-1 text-[11px] text-[#747782]">{new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
+                </div>
               </div>
             ))}
           </div>
