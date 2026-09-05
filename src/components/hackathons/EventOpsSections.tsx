@@ -95,26 +95,6 @@ export default function EventOpsSections({
         </div>
       ) : null}
 
-      {visibleNotices.length > 0 ? (
-        <section className={sectionCls}>
-          <h3 className="font-headline text-xl text-[#002155]">Notices</h3>
-          <div className="mt-3 space-y-3">
-            {visibleNotices.map((n) => (
-              <div key={n.id} className="border border-[#e3e2df] bg-[#faf9f5] p-3">
-                <p className="font-semibold text-[#002155]">
-                  {n.pinned ? "📌 " : ""}
-                  {n.title}
-                </p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.body}</p>
-                <p className="mt-1 text-[11px] text-[#747782]">
-                  {new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
       {(news ?? []).length > 0 ? (
         <section className={sectionCls}>
           <h3 className="font-headline text-xl text-[#002155]">News</h3>
@@ -133,6 +113,26 @@ export default function EventOpsSections({
                   <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.caption}</p>
                   <p className="mt-1 text-[11px] text-[#747782]">{new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {visibleNotices.length > 0 ? (
+        <section className={sectionCls}>
+          <h3 className="font-headline text-xl text-[#002155]">Notices</h3>
+          <div className="mt-3 space-y-3">
+            {visibleNotices.map((n) => (
+              <div key={n.id} className="border border-[#e3e2df] bg-[#faf9f5] p-3">
+                <p className="font-semibold text-[#002155]">
+                  {n.pinned ? "📌 " : ""}
+                  {n.title}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.body}</p>
+                <p className="mt-1 text-[11px] text-[#747782]">
+                  {new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+                </p>
               </div>
             ))}
           </div>
