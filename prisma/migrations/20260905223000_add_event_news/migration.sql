@@ -1,4 +1,4 @@
-﻿-- CreateTable EventNews for admin-managed per-event news (mirrors Notice)
+-- CreateTable EventNews for admin-managed per-event news (mirrors Notice)
 CREATE TABLE `event_news` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `eventId` INT NOT NULL,
