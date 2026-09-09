@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import NewsCard from "@/components/NewsModal";
 
 type Api<T> = { success: boolean; message: string; data: T };
 type NoticeRow = { id: number; title: string; body: string; pinned: boolean; createdAt: string };
@@ -98,22 +99,18 @@ export default function EventOpsSections({
       {(news ?? []).length > 0 ? (
         <section className={sectionCls}>
           <h3 className="font-headline text-xl text-[#002155]">News</h3>
-          <div className="mt-3 space-y-4">
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {(news ?? []).map((n) => (
-              <div key={n.id} className="overflow-hidden border border-[#e3e2df] bg-[#faf9f5]">
-                <div className="aspect-[16/9] w-full overflow-hidden bg-white">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={storageUrl(n.imageKey)} alt={n.title} className="h-full w-full object-contain" />
-                </div>
-                <div className="p-3">
-                  <p className="font-semibold text-[#002155]">
-                    {n.pinned ? "📌 " : ""}
-                    {n.title}
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.caption}</p>
-                  <p className="mt-1 text-[11px] text-[#747782]">{new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
-                </div>
-              </div>
+              <NewsCard
+                key={n.id}
+                item={{
+                  id: n.id,
+                  title: n.pinned ? `📌 ${n.title}` : n.title,
+                  caption: n.caption,
+                  imageUrl: storageUrl(n.imageKey),
+                  publishedAt: n.createdAt,
+                }}
+              />
             ))}
           </div>
         </section>
