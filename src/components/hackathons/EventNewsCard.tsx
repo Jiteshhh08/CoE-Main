@@ -70,7 +70,7 @@ export default function EventNewsCard({ item }: { item: EventNewsItem }) {
           <h3 className="font-body font-semibold text-[#002155] mb-2 leading-tight group-hover:text-[#8c4f00] transition-colors">
             {item.title}
           </h3>
-          <p className="text-sm text-[#434651] line-clamp-3">{item.caption}</p>
+          <p className="text-sm text-[#434651] line-clamp-5">{item.caption}</p>
         </div>
       </article>
 
