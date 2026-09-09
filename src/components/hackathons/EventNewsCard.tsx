@@ -53,7 +53,7 @@ export default function EventNewsCard({ item }: { item: EventNewsItem }) {
         tabIndex={0}
         className="border border-[#c4c6d3] bg-white group cursor-pointer hover:shadow-lg transition-shadow duration-300 flex overflow-hidden"
       >
-        <div className="w-40 sm:w-60 shrink-0 bg-[#efeeea] overflow-hidden relative border-r border-[#c4c6d3] min-h-28 sm:min-h-36">
+        <div className="w-[35%] shrink-0 bg-[#efeeea] overflow-hidden relative border-r border-[#c4c6d3] min-h-36 sm:min-h-44">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-500"
