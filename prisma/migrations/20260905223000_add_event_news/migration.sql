@@ -8,6 +8,7 @@ CREATE TABLE `event_news` (
     `pinned` BOOLEAN NOT NULL DEFAULT false,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
+    PRIMARY KEY (`id`),
     CONSTRAINT `event_news_eventId_fkey` FOREIGN KEY (`eventId`) REFERENCES `hackathon_events` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
