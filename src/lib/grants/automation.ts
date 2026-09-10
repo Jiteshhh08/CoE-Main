@@ -3,6 +3,22 @@ import { TRUSTED_SOURCES } from "./sources";
 
 const QWEN_API_URL = "https://ai.tcetcercd.in/v1/chat/completions";
 
+const TRUSTED_DOMAINS = TRUSTED_SOURCES.map((s) => {
+  try { return new URL(s.url).hostname; } catch { return s.url; }
+});
+
+function isTrustedUrl(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const hostname = new URL(url).hostname;
+    return TRUSTED_DOMAINS.some(
+      (d) => hostname === d || hostname.endsWith("." + d)
+    );
+  } catch {
+    return false;
+  }
+}
+
 type RawGrant = {
   title: string;
   issuingBody: string;
@@ -45,13 +61,20 @@ ${sourceList}
 STRICT RULES:
 1. ONLY include grants you are confident are REAL from your training data
 2. Use REAL organization names matching the trusted sources above
-3. Use REAL official URLs from the trusted sources list
-4. If you are NOT certain a grant exists, DO NOT include it
-5. Every grant MUST have a deadline in YYYY-MM-DD format (e.g. "2026-10-31")
-6. If you do not know the exact deadline, use the last day of the next month (e.g. "2026-10-31" for a grant active in October 2026)
-7. Do NOT use null for deadlines — every record must have a date
-8. Each grant must have a valid referenceLink pointing to the official source page
-9. Do NOT include a grant if you truly cannot determine any reasonable deadline
+3. If you are NOT certain a grant exists, DO NOT include it
+4. Every grant MUST have a deadline in YYYY-MM-DD format (e.g. "2026-10-31")
+5. If you do not know the exact deadline, use the last day of the next month (e.g. "2026-10-31" for a grant active in October 2026)
+6. Do NOT use null for deadlines — every record must have a date
+7. Do NOT include a grant if you truly cannot determine any reasonable deadline
+
+URL RULES (critical — wrong URLs damage credibility):
+8. referenceLink MUST be a REAL, working URL that you are confident exists
+9. If you know the exact grant page URL, use it
+10. If you only know the organization's main website, use that (e.g. "https://www.dst.gov.in") — a working homepage is better than a guessed subpage
+11. Do NOT fabricate URL paths (e.g. do NOT guess "https://www.dst.gov.in/grants/crg" unless you are certain it exists)
+12. Do NOT add random year suffixes or IDs to URLs
+13. If you are unsure about a specific URL, use the trusted source URL from the source list above — those are verified
+14. Every URL must start with https://
 
 CATEGORIES (use exactly one):
 - GOVT_GRANT: Government funding programs
@@ -68,7 +91,7 @@ Each object must have exactly these fields (NO null values allowed for deadline)
   "category": "string — one of the 4 categories above",
   "description": "string — 2-3 sentence summary grounded in reality",
   "deadline": "string — YYYY-MM-DD format, must be a real date, NEVER null",
-  "referenceLink": "string URL"
+  "referenceLink": "string — a REAL working URL. Use trusted source URL if unsure. Never fabricate paths."
 }
 
 Example deadline values: "2026-10-15", "2026-11-30", "2026-12-31"`;
@@ -104,6 +127,8 @@ function validateGrant(raw: RawGrant, index: number): string[] {
     errors.push(`Grant ${index}: deadline is required`);
   else if (isNaN(Date.parse(raw.deadline)))
     errors.push(`Grant ${index}: invalid deadline "${raw.deadline}"`);
+  if (raw.referenceLink && !isTrustedUrl(raw.referenceLink))
+    errors.push(`Grant ${index}: URL not from trusted source "${raw.referenceLink}"`);
   return errors;
 }
 
