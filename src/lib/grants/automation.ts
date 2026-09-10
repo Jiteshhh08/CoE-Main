@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { TRUSTED_SOURCES } from "./sources";
 
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const QWEN_API_URL = "https://ai.tcetcercd.in/v1/chat/completions";
 
 type RawGrant = {
   title: string;
@@ -47,11 +47,11 @@ STRICT RULES:
 2. Use REAL organization names matching the trusted sources above
 3. Use REAL official URLs from the trusted sources list
 4. If you are NOT certain a grant exists, DO NOT include it
-5. Do NOT invent funding amounts — use null if unsure
-6. Do NOT invent deadlines — use null if unsure
-7. Do NOT invent eligibility criteria — use null if unsure
-8. Use realistic deadlines only for grants you are certain about
-9. Each grant must have a valid referenceLink pointing to the official source page
+5. Every grant MUST have a deadline in YYYY-MM-DD format (e.g. "2026-10-31")
+6. If you do not know the exact deadline, use the last day of the next month (e.g. "2026-10-31" for a grant active in October 2026)
+7. Do NOT use null for deadlines — every record must have a date
+8. Each grant must have a valid referenceLink pointing to the official source page
+9. Do NOT include a grant if you truly cannot determine any reasonable deadline
 
 CATEGORIES (use exactly one):
 - GOVT_GRANT: Government funding programs
@@ -61,15 +61,17 @@ CATEGORIES (use exactly one):
 
 OUTPUT: Return ONLY a valid JSON array. No markdown fences, no explanation, no text before or after.
 
-Each object must have exactly these fields:
+Each object must have exactly these fields (NO null values allowed for deadline):
 {
   "title": "string — grant/program name",
   "issuingBody": "string — organization name from trusted sources",
   "category": "string — one of the 4 categories above",
   "description": "string — 2-3 sentence summary grounded in reality",
-  "deadline": "string YYYY-MM-DD or null",
-  "referenceLink": "string URL or null"
-}`;
+  "deadline": "string — YYYY-MM-DD format, must be a real date, NEVER null",
+  "referenceLink": "string URL"
+}
+
+Example deadline values: "2026-10-15", "2026-11-30", "2026-12-31"`;
 }
 
 function parseClaudeResponse(text: string): RawGrant[] {
@@ -98,7 +100,9 @@ function validateGrant(raw: RawGrant, index: number): string[] {
     errors.push(`Grant ${index}: invalid category "${raw.category}"`);
   if (!raw.description || raw.description.length < 10)
     errors.push(`Grant ${index}: description too short`);
-  if (raw.deadline && isNaN(Date.parse(raw.deadline)))
+  if (!raw.deadline)
+    errors.push(`Grant ${index}: deadline is required`);
+  else if (isNaN(Date.parse(raw.deadline)))
     errors.push(`Grant ${index}: invalid deadline "${raw.deadline}"`);
   return errors;
 }
@@ -143,33 +147,32 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
   });
 
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+    const apiKey = process.env.QWEN_API_KEY;
+    if (!apiKey) throw new Error("QWEN_API_KEY not configured");
 
     const prompt = buildPrompt(month);
 
-    const response = await fetch(ANTHROPIC_API_URL, {
+    const response = await fetch(QWEN_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
+        model: "qwen3.6",
         messages: [{ role: "user", content: prompt }],
+        max_tokens: 4096,
       }),
     });
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Claude API error ${response.status}: ${body}`);
+      throw new Error(`Qwen API error ${response.status}: ${body}`);
     }
 
     const data = await response.json();
-    const text = data.content?.[0]?.text;
-    if (!text) throw new Error("Empty response from Claude API");
+    const text = data.choices?.[0]?.message?.content;
+    if (!text) throw new Error("Empty response from Qwen API");
 
     const rawGrants = parseClaudeResponse(text);
     grantsFound = rawGrants.length;
@@ -220,7 +223,7 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
           issuingBody: grant.issuingBody,
           category: normalizeCategory(grant.category),
           description: grant.description,
-          deadline: grant.deadline ? new Date(grant.deadline) : new Date(),
+          deadline: new Date(grant.deadline!),
           referenceLink: grant.referenceLink || null,
           source: "AUTO",
           month,
