@@ -23,9 +23,13 @@ The CoE needs to communicate with students and faculty about:
 | `src/app/api/events/[id]/route.ts` | Update and delete events |
 | `src/app/api/grants/route.ts` | List and create grants |
 | `src/app/api/grants/[id]/route.ts` | Update and delete grants |
+| `src/app/api/cron/grants-collector/route.ts` | Cron endpoint for monthly grant collection |
+| `src/lib/grants/automation.ts` | Grant collection logic (AI API, validation, dedup) |
+| `src/lib/grants/sources.ts` | Trusted grant source configuration |
 | `src/app/api/announcements/route.ts` | List and create announcements |
 | `src/app/api/announcements/[id]/route.ts` | Delete announcement |
 | `src/app/api/hero-slides/route.ts` | List and create hero slides |
+| `.github/workflows/monthly-grants.yml` | Scheduled workflow (1st of month, 08:00 AM IST) |
 
 ## Access Control
 
@@ -132,9 +136,35 @@ model Grant {
   deadline      DateTime
   referenceLink String?
   attachmentKey String?
-  postedById    Int
-  postedBy      User
+  postedById    Int?           // null for automated grants
+  postedBy      User?
   isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  source        String        @default("MANUAL")  // "MANUAL" | "AUTO"
+  month         String?                            // "2026-10" — collection period
+
+  @@index([month])
+  @@index([source])
+}
+```
+
+### AutomationRun (`automation_runs`)
+
+Tracks monthly grant collection runs.
+
+```prisma
+model AutomationRun {
+  id              Int      @id @default(autoincrement())
+  month           String   // "2026-10"
+  status          String   // "SUCCESS" | "PARTIAL" | "FAILED"
+  grantsFound     Int      @default(0)
+  grantsPublished Int      @default(0)
+  duplicatesSkipped Int    @default(0)
+  errors          String?  @db.Text
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  @@index([month])
 }
 ```
 
@@ -196,3 +226,63 @@ model HeroSlide {
 ## Summary
 
 The Content Management System is a straightforward CRUD module for public-facing content. It demonstrates the standard patterns: Zod validation, MinIO uploads, authenticate/authorize, and JSON responses. It's an excellent module for beginners to study because it's simple but touches all the major systems.
+
+## Grants Automation System
+
+Grants are automatically collected monthly via an AI-powered pipeline.
+
+### How It Works
+
+1. **GitHub Actions** triggers on the 1st of every month at 08:00 AM IST
+2. Calls `GET /api/cron/grants-collector` with `x-cron-secret` header
+3. The endpoint calls the college AI Gateway (Qwen3.6-35B) with a structured prompt
+4. AI returns 10-15 grant opportunities as JSON
+5. Each grant is validated (schema, deadlines, URL trust check)
+6. Duplicates are detected (title + issuingBody + month)
+7. Valid grants are saved to the `grants` table with `source: "AUTO"`
+8. Results are logged in `automation_runs` table
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `QWEN_API_KEY` | College AI Gateway API key |
+| `CRON_SECRET` | Auth token for cron endpoints |
+
+### Trusted Sources
+
+Configured in `src/lib/grants/sources.ts`. Currently includes:
+DST, DBT, UGC, AICTE, ICMR, MeitY, NITI Aayog, DRDO, ISRO, DHE.
+
+### Cron Endpoint
+
+```
+GET /api/cron/grants-collector
+Header: x-cron-secret: <CRON_SECRET>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "month": "2026-10",
+    "status": "SUCCESS",
+    "grantsFound": 12,
+    "grantsPublished": 10,
+    "duplicatesSkipped": 2,
+    "errors": []
+  }
+}
+```
+
+### Idempotency
+
+Running the collector twice for the same month returns the existing run's results without creating duplicate grants.
+
+### Manual Testing
+
+```bash
+curl -X GET "https://tcetcercd.in/api/cron/grants-collector" \
+  -H "x-cron-secret: YOUR_CRON_SECRET"
+```

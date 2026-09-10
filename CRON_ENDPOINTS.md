@@ -306,11 +306,56 @@ GET /api/cron/email-queue?limit=100
 
 # Every 10 min: problem statement notifications
 GET /api/cron/problem-statement-notification
+
+# Monthly (1st of month, 08:00 AM IST via GitHub Actions):
+GET /api/cron/grants-collector
 ```
 
 All calls should send:
 
 - Header `x-cron-secret: <CRON_SECRET>`
+
+---
+
+## E) GET /api/cron/grants-collector
+
+Purpose:
+- Collects monthly grant opportunities via college AI Gateway (Qwen3.6)
+- Validates, deduplicates, and stores grants in the `grants` table
+- Logs run in `automation_runs` table
+- Idempotent — safe to call multiple times per month
+
+Query parameters:
+
+- `secret` (optional): cron secret.
+
+Headers:
+
+- `x-cron-secret`
+
+Response (success):
+
+```json
+{
+  "success": true,
+  "message": "Grants collection completed.",
+  "data": {
+    "month": "2026-10",
+    "status": "SUCCESS",
+    "grantsFound": 12,
+    "grantsPublished": 10,
+    "duplicatesSkipped": 2,
+    "errors": []
+  }
+}
+```
+
+Status values:
+- `SUCCESS`: all grants processed without errors
+- `PARTIAL`: some grants had validation errors
+- `FAILED`: collection failed entirely
+
+Triggered by: `.github/workflows/monthly-grants.yml` (cron: `30 2 1 * *` = 08:00 AM IST on 1st of month)
 
 ---
 
