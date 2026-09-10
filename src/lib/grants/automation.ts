@@ -10,7 +10,6 @@ type RawGrant = {
   description: string;
   deadline: string | null;
   referenceLink: string | null;
-  funding: string | null;
 };
 
 type AutomationResult = {
@@ -69,8 +68,7 @@ Each object must have exactly these fields:
   "category": "string — one of the 4 categories above",
   "description": "string — 2-3 sentence summary grounded in reality",
   "deadline": "string YYYY-MM-DD or null",
-  "referenceLink": "string URL or null",
-  "funding": "string amount or null"
+  "referenceLink": "string URL or null"
 }`;
 }
 
