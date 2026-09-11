@@ -24,7 +24,8 @@ The CoE needs to communicate with students and faculty about:
 | `src/app/api/grants/route.ts` | List and create grants |
 | `src/app/api/grants/[id]/route.ts` | Update and delete grants |
 | `src/app/api/cron/grants-collector/route.ts` | Cron endpoint for monthly grant collection |
-| `src/lib/grants/automation.ts` | Grant collection logic (AI API, validation, dedup) |
+| `src/lib/grants/automation.ts` | Collection pipeline (scrape → AI structure → validate → dedup → store) |
+| `src/lib/grants/scraper.ts` | Live scraper for official source pages (no new deps, fetch + regex) |
 | `src/lib/grants/sources.ts` | Trusted grant source configuration |
 | `src/app/api/announcements/route.ts` | List and create announcements |
 | `src/app/api/announcements/[id]/route.ts` | Delete announcement |
@@ -235,10 +236,10 @@ Grants are automatically collected monthly via an AI-powered pipeline.
 
 1. **GitHub Actions** triggers on the 1st of every month at 08:00 AM IST
 2. Calls `GET /api/cron/grants-collector` with `x-cron-secret` header
-3. The endpoint calls the college AI Gateway (Qwen3.6-35B) with a structured prompt
-4. AI returns 10-15 grant opportunities as JSON
-5. Each grant is validated (schema, deadlines, URL trust check)
-6. Duplicates are detected (title + issuingBody + month)
+3. **Scraper** (`src/lib/grants/scraper.ts`) fetches live official pages (DST call-for-proposals, DST announcements, DST fellowships, AICTE scheme pages), extracts opportunity links + dates, filters nav/job/stale noise
+4. The endpoint sends scraped candidates to the college AI Gateway (Qwen3.6) with a structuring prompt — Qwen selects and normalizes, it does not browse
+5. Each grant is validated (schema, deadlines required, URL must belong to a trusted domain)
+6. Duplicates are detected (title + issuingBody + month, plus referenceLink)
 7. Valid grants are saved to the `grants` table with `source: "AUTO"`
 8. Results are logged in `automation_runs` table
 

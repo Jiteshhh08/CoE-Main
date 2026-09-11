@@ -1,16 +1,21 @@
 import prisma from "@/lib/prisma";
 import { TRUSTED_SOURCES } from "./sources";
+import { scrapeGrantSources, type ScrapedCandidate } from "./scraper";
 
 const QWEN_API_URL = "https://ai.tcetcercd.in/v1/chat/completions";
 
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^www\./, "");
+}
+
 const TRUSTED_DOMAINS = TRUSTED_SOURCES.map((s) => {
-  try { return new URL(s.url).hostname; } catch { return s.url; }
+  try { return normalizeHostname(new URL(s.url).hostname); } catch { return s.url; }
 });
 
 function isTrustedUrl(url: string | null): boolean {
   if (!url) return false;
   try {
-    const hostname = new URL(url).hostname;
+    const hostname = normalizeHostname(new URL(url).hostname);
     return TRUSTED_DOMAINS.some(
       (d) => hostname === d || hostname.endsWith("." + d)
     );
@@ -35,6 +40,8 @@ type AutomationResult = {
   grantsPublished: number;
   duplicatesSkipped: number;
   errors: string[];
+  scrapedCount: number;
+  scrapedPages: number;
 };
 
 function getCurrentMonth(): string {
@@ -44,57 +51,66 @@ function getCurrentMonth(): string {
   return `${y}-${m}`;
 }
 
-function buildPrompt(currentMonth: string): string {
+function buildPrompt(currentMonth: string, scraped: ScrapedCandidate[]): string {
   const sourceList = TRUSTED_SOURCES.map(
     (s) => `- ${s.name} (${s.abbreviation}) — ${s.url}`
   ).join("\n");
 
-  return `You are a grant research assistant for an Indian academic Centre of Excellence focused on engineering and technology.
+  const scrapedBlock =
+    scraped.length > 0
+      ? scraped
+          .map(
+            (c, i) =>
+              `[${i + 1}] ${c.title}\nURL: ${c.url}\nSource page: ${c.sourcePageUrl}\nContext: ${c.snippet}\nDates seen: ${c.dateTexts.join(", ") || "none"}`
+          )
+          .join("\n\n")
+      : "(no live pages could be fetched — use only opportunities you are highly confident are real)";
 
-Today's date: ${new Date().toISOString().slice(0, 10)}. The target month is ${currentMonth}.
+  return `You are a grant-data extraction assistant for an Indian Engineering & Technology Centre of Excellence.
+Today: ${new Date().toISOString().slice(0, 10)}
+Target month: ${currentMonth}
 
-Generate a JSON array of 10-15 REAL, currently active grant/scholarship/funding opportunities in India relevant to engineering students, researchers, and faculty.
+Below is LIVE scraped data collected right now from official trusted-source pages. Prefer these over memory. You may also use training knowledge ONLY for well-known recurring programs, and only when highly confident.
 
-TRUSTED SOURCES TO PRIORITIZE:
+SCRAPED CANDIDATES:
+${scrapedBlock}
+
+Your job is to select and structure ONLY opportunities that are:
+- REAL
+- CURRENTLY ACTIVE for the target month
+- Relevant to engineering, technology, research, students, researchers, or faculty
+- From the trusted organizations/domains provided
+- Supported by the scraped data above or by high-confidence knowledge
+
+TRUSTED SOURCES:
 ${sourceList}
 
-STRICT RULES:
-1. ONLY include grants you are confident are REAL from your training data
-2. Use REAL organization names matching the trusted sources above
-3. If you are NOT certain a grant exists, DO NOT include it
-4. Every grant MUST have a deadline in YYYY-MM-DD format (e.g. "2026-10-31")
-5. If you do not know the exact deadline, use the last day of the next month (e.g. "2026-10-31" for a grant active in October 2026)
-6. Do NOT use null for deadlines — every record must have a date
-7. Do NOT include a grant if you truly cannot determine any reasonable deadline
+IMPORTANT:
+1. Do NOT invent facts, deadlines, or URLs.
+2. Do NOT use old/expired opportunities.
+3. Every grant MUST have a deadline in YYYY-MM-DD format. If the scraped context shows a date, use it. Otherwise use the last day of the target month.
+4. referenceLink MUST be a URL from the scraped candidates above when available — copy it exactly, never modify paths. Only fall back to a trusted-source homepage when no candidate URL fits.
+5. Every URL must start with https://
+6. If the official URL is missing or uncertain, EXCLUDE the opportunity.
+7. No duplicates. Accuracy > quantity.
 
-URL RULES (critical — wrong URLs damage credibility):
-8. referenceLink MUST be a REAL, working URL that you are confident exists
-9. If you know the exact grant page URL, use it
-10. If you only know the organization's main website, use that (e.g. "https://www.dst.gov.in") — a working homepage is better than a guessed subpage
-11. Do NOT fabricate URL paths (e.g. do NOT guess "https://www.dst.gov.in/grants/crg" unless you are certain it exists)
-12. Do NOT add random year suffixes or IDs to URLs
-13. If you are unsure about a specific URL, use the trusted source URL from the source list above — those are verified
-14. Every URL must start with https://
+Return up to 10-15 of the strongest opportunities. If fewer qualify, return fewer.
 
-CATEGORIES (use exactly one):
-- GOVT_GRANT: Government funding programs
-- SCHOLARSHIP: Student scholarships and fellowships
-- RESEARCH_FUND: Research project funding
-- INDUSTRY_GRANT: Industry-sponsored grants
+Categories: GOVT_GRANT, SCHOLARSHIP, RESEARCH_FUND, INDUSTRY_GRANT
 
-OUTPUT: Return ONLY a valid JSON array. No markdown fences, no explanation, no text before or after.
-
-Each object must have exactly these fields (NO null values allowed for deadline):
+For each selected opportunity return exactly:
 {
-  "title": "string — grant/program name",
-  "issuingBody": "string — organization name from trusted sources",
-  "category": "string — one of the 4 categories above",
-  "description": "string — 2-3 sentence summary grounded in reality",
-  "deadline": "string — YYYY-MM-DD format, must be a real date, NEVER null",
-  "referenceLink": "string — a REAL working URL. Use trusted source URL if unsure. Never fabricate paths."
+  "title": "string",
+  "issuingBody": "string",
+  "category": "GOVT_GRANT | SCHOLARSHIP | RESEARCH_FUND | INDUSTRY_GRANT",
+  "description": "2 concise sentences",
+  "deadline": "YYYY-MM-DD (never null)",
+  "referenceLink": "exact scraped URL or trusted homepage"
 }
 
-Example deadline values: "2026-10-15", "2026-11-30", "2026-12-31"`;
+FINAL CHECK: Remove any record with uncertain existence, expired deadline, non-https URL, fabricated path, unsupported claims, or duplicate opportunity.
+
+Return ONLY valid JSON.`;
 }
 
 function parseClaudeResponse(text: string): RawGrant[] {
@@ -164,6 +180,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished: existingRun.grantsPublished,
       duplicatesSkipped: existingRun.duplicatesSkipped,
       errors: ["Already ran for this month — skipping."],
+      scrapedCount: 0,
+      scrapedPages: 0,
     };
   }
 
@@ -175,7 +193,15 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
     const apiKey = process.env.QWEN_API_KEY;
     if (!apiKey) throw new Error("QWEN_API_KEY not configured");
 
-    const prompt = buildPrompt(month);
+    // Step 1: scrape live official pages — Qwen structures this data,
+    // it does not browse the web itself.
+    const scraped = await scrapeGrantSources();
+    for (const e of scraped.errors) errors.push(`Scraper: ${e}`);
+    console.log(
+      `[grants-collector] scraped ${scraped.candidates.length} candidates from ${scraped.pagesFetched} pages`
+    );
+
+    const prompt = buildPrompt(month, scraped.candidates);
 
     const response = await fetch(QWEN_API_URL, {
       method: "POST",
@@ -280,6 +306,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
+      scrapedCount: scraped.candidates.length,
+      scrapedPages: scraped.pagesFetched,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -304,6 +332,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
+      scrapedCount: 0,
+      scrapedPages: 0,
     };
   }
 }
