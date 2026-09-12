@@ -320,10 +320,11 @@ All calls should send:
 ## E) GET /api/cron/grants-collector
 
 Purpose:
-- Collects monthly grant opportunities via college AI Gateway (Qwen3.6)
+- Scrapes live official pages (DST, AICTE), then asks the college AI Gateway (Qwen3.6) to structure candidates into grants
 - Validates, deduplicates, and stores grants in the `grants` table
 - Logs run in `automation_runs` table
-- Idempotent — safe to call multiple times per month
+- Idempotent — safe to call multiple times per month (repeat calls in a successful month return the stored result)
+- Rate-limited — max one collection run per 10 minutes (HTTP 429 beyond that)
 
 Query parameters:
 
@@ -345,17 +346,19 @@ Response (success):
     "grantsFound": 12,
     "grantsPublished": 10,
     "duplicatesSkipped": 2,
-    "errors": []
+    "errors": [],
+    "scrapedCount": 21,
+    "scrapedPages": 6
   }
 }
 ```
 
 Status values:
 - `SUCCESS`: all grants processed without errors
-- `PARTIAL`: some grants had validation errors
-- `FAILED`: collection failed entirely
+- `PARTIAL`: some grants had validation errors (or scraper pages failed)
+- `FAILED`: collection failed entirely (e.g. AI gateway down)
 
-Triggered by: `.github/workflows/monthly-grants.yml` (cron: `30 2 1 * *` = 08:00 AM IST on 1st of month)
+Triggered by: `.github/workflows/monthly-grants.yml` (1st of month = primary, 5th = retry, both 08:00 AM IST)
 
 ---
 

@@ -46,6 +46,7 @@ const SEED_PAGES: SeedPage[] = [
 ];
 
 const FETCH_TIMEOUT_MS = 15000;
+const POLITENESS_DELAY_MS = 1500;
 const MAX_HTML_CHARS = 1_500_000;
 const MAX_CANDIDATES_PER_PAGE = 15;
 const MAX_TOTAL_CANDIDATES = 40;
@@ -142,6 +143,22 @@ function extractDates(text: string): string[] {
     /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/gi
   )) {
     push(m[3], MONTHS[m[1].toLowerCase()], m[2]);
+  }
+  // Month-only text like "September 2026" or "Sept 2026" → last day of that month.
+  // Accurate to the stated granularity; the AI prompt still requires flagging
+  // these as tentative in the description.
+  const SHORT_MONTHS: Record<string, string> = {
+    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+    jul: "07", aug: "08", sep: "09", sept: "09", oct: "10", nov: "11", dec: "12",
+  };
+  for (const m of text.matchAll(
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{4})\b/gi
+  )) {
+    const key = m[1].toLowerCase();
+    const mm = MONTHS[key] || SHORT_MONTHS[key];
+    if (!mm) continue;
+    const lastDay = new Date(parseInt(m[2], 10), parseInt(mm, 10), 0).getDate();
+    push(m[2], mm, String(lastDay));
   }
   return [...found].slice(0, 4);
 }
@@ -247,6 +264,10 @@ export async function scrapeGrantSources(): Promise<ScrapeResult> {
     try {
       const html = await fetchPageHtml(seed.pageUrl);
       pagesFetched++;
+      // ponytail: 1.5s gap keeps us polite to NIC-hosted servers; ceiling is
+      // ~10s total for 6 pages, fine for a monthly job. If the seed list grows
+      // past ~20 pages, switch to a small worker pool with the same gap.
+      await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
       for (const c of parsePage(html, seed)) {
         if (candidates.length >= MAX_TOTAL_CANDIDATES) break;
         // Deduplicate across pages by URL

@@ -143,6 +143,7 @@ model Grant {
   createdAt     DateTime      @default(now())
   source        String        @default("MANUAL")  // "MANUAL" | "AUTO"
   month         String?                            // "2026-10" — collection period
+  isTentative   Boolean       @default(false) // true when deadline is a fallback/review-horizon, not verified
 
   @@index([month])
   @@index([source])
@@ -241,7 +242,27 @@ Grants are automatically collected monthly via an AI-powered pipeline.
 5. Each grant is validated (schema, deadlines required, URL must belong to a trusted domain)
 6. Duplicates are detected (title + issuingBody + month, plus referenceLink)
 7. Valid grants are saved to the `grants` table with `source: "AUTO"`
-8. Results are logged in `automation_runs` table
+8. `isTentative` is set from the AI-reported `deadlineTentative` flag (anything but explicit `false` counts as tentative); tentative deadlines render with `*` on the homepage plus a legend
+9. Results are logged in `automation_runs` table
+
+### Deadline honesty
+
+Fallback or rolling-horizon dates must never look verified:
+- AI appends a tentative/year-round sentence to the description
+- `isTentative: true` renders `*` next to the deadline on the homepage
+- A legend below the table reads: "* Tentative deadline — confirm on the official page."
+
+### Scraper politeness
+
+`src/lib/grants/scraper.ts` fetches sequentially with a 1.5s gap between pages, 15s timeout and 1.5MB cap per page, and an identifying User-Agent. Neither `dst.gov.in` nor `aicte-india.org` publishes a `robots.txt` (both 404 as of Sept 2026), so no bot-exclusion rules are being violated.
+
+### Retry schedule
+
+The workflow runs on the 1st (primary) and the 5th (retry) of every month at 08:00 AM IST. The endpoint is idempotent: if the 1st succeeded, the 5th skips without duplicates; if the 1st failed (e.g. AI gateway down), the 5th runs the full pipeline.
+
+### Endpoint rate limits
+
+In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes): collection max once per 10 minutes — returns HTTP 429 when exceeded. This bounds AI/scrape cost on repeated triggers after failed runs (idempotency only skips successful months).
 
 ### Environment Variables
 
