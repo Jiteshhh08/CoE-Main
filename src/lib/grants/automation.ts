@@ -167,6 +167,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
   let grantsFound = 0;
   let grantsPublished = 0;
   let duplicatesSkipped = 0;
+  let scrapedCount = 0;
+  let scrapedPages = 0;
 
   // Idempotency: check if we already ran this month
   const existingRun = await prisma.automationRun.findFirst({
@@ -196,6 +198,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
     // Step 1: scrape live official pages — Qwen structures this data,
     // it does not browse the web itself.
     const scraped = await scrapeGrantSources();
+    scrapedCount = scraped.candidates.length;
+    scrapedPages = scraped.pagesFetched;
     for (const e of scraped.errors) errors.push(`Scraper: ${e}`);
     console.log(
       `[grants-collector] scraped ${scraped.candidates.length} candidates from ${scraped.pagesFetched} pages`
@@ -306,8 +310,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
-      scrapedCount: scraped.candidates.length,
-      scrapedPages: scraped.pagesFetched,
+      scrapedCount,
+      scrapedPages,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -332,8 +336,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
-      scrapedCount: 0,
-      scrapedPages: 0,
+      scrapedCount,
+      scrapedPages,
     };
   }
 }
