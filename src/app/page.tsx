@@ -348,6 +348,7 @@ export default async function HomePage() {
                       </td>
                       <td className="p-3 md:p-4">
                         {formatDate(grant.deadline)}
+                        {grant.isTentative ? "*" : ""}
                       </td>
                       <td className="p-3 md:p-4">
                         {grant.referenceLink ? (

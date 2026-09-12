@@ -201,6 +201,7 @@ export const grantCreateSchema = z.object({
   referenceLink: z.string().url().optional().or(z.literal('')),
   source: z.enum(['MANUAL', 'AUTO']).optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/, 'Invalid month format (YYYY-MM)').optional(),
+  isTentative: z.boolean().optional(),
 });
 
 export const grantUpdateSchema = z.object({
@@ -213,6 +214,7 @@ export const grantUpdateSchema = z.object({
   source: z.enum(['MANUAL', 'AUTO']).optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/, 'Invalid month format (YYYY-MM)').optional(),
   isActive: z.boolean().optional(),
+  isTentative: z.boolean().optional(),
 });
 
 // ─── Event Validators ───

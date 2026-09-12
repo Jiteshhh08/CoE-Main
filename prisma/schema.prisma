@@ -804,6 +804,7 @@ model Grant {
   createdAt     DateTime      @default(now())
   source        String        @default("MANUAL") // "MANUAL" | "AUTO"
   month         String?                              // "2026-10" — collection period for auto grants
+  isTentative   Boolean       @default(false) // true when deadline is a fallback/review-horizon, not a verified published date
 
   @@index([month])
   @@index([source])

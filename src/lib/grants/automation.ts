@@ -31,6 +31,9 @@ type RawGrant = {
   description: string;
   deadline: string | null;
   referenceLink: string | null;
+  // AI-reported: true when the deadline is a fallback/rolling-horizon date.
+  // Unknown/missing is treated as tentative (safe direction).
+  deadlineTentative: unknown;
 };
 
 type AutomationResult = {
@@ -88,8 +91,10 @@ ${sourceList}
 IMPORTANT:
 1. Do NOT invent facts, deadlines, or URLs.
 2. Do NOT use old/expired opportunities.
-3. Every grant MUST have a deadline in YYYY-MM-DD format. If the scraped context shows a date, use it. Otherwise use the last day of the target month.
-4. referenceLink MUST be a URL from the scraped candidates above when available — copy it exactly, never modify paths. Only fall back to a trusted-source homepage when no candidate URL fits.
+3. Every grant MUST have a deadline in YYYY-MM-DD format. Priority: (a) exact date from the scraped context, (b) last day of a month named in the context, (c) last day of the target month as fallback.
+4. DEADLINE HONESTY (critical — students plan submissions around these dates): if you use fallback (c), or the opportunity is rolling/year-round, you MUST end the description with exactly one of these sentences: "Deadline shown is tentative — confirm on the official page." or "Applications are accepted year-round; the shown date is a review horizon, not a cutoff — confirm on the official page."
+5. For EVERY grant, set deadlineTentative to true if the deadline is a fallback/rolling-horizon date, or false ONLY if you copied an exact published deadline. When in doubt, use true.
+6. referenceLink MUST be a URL from the scraped candidates above when available — copy it exactly, never modify paths. Only fall back to a trusted-source homepage when no candidate URL fits.
 5. Every URL must start with https://
 6. If the official URL is missing or uncertain, EXCLUDE the opportunity.
 7. No duplicates. Accuracy > quantity.
@@ -105,7 +110,8 @@ For each selected opportunity return exactly:
   "category": "GOVT_GRANT | SCHOLARSHIP | RESEARCH_FUND | INDUSTRY_GRANT",
   "description": "2 concise sentences",
   "deadline": "YYYY-MM-DD (never null)",
-  "referenceLink": "exact scraped URL or trusted homepage"
+  "referenceLink": "exact scraped URL or trusted homepage",
+  "deadlineTentative": "boolean — true if fallback/rolling-horizon, false only if exact published date"
 }
 
 FINAL CHECK: Remove any record with uncertain existence, expired deadline, non-https URL, fabricated path, unsupported claims, or duplicate opportunity.
@@ -146,6 +152,11 @@ function validateGrant(raw: RawGrant, index: number): string[] {
   if (raw.referenceLink && !isTrustedUrl(raw.referenceLink))
     errors.push(`Grant ${index}: URL not from trusted source "${raw.referenceLink}"`);
   return errors;
+}
+
+function normalizeTentative(value: unknown): boolean {
+  // Safe direction: anything other than an explicit false counts as tentative.
+  return value !== false;
 }
 
 function normalizeCategory(
@@ -280,6 +291,7 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
           description: grant.description,
           deadline: new Date(grant.deadline!),
           referenceLink: grant.referenceLink || null,
+          isTentative: normalizeTentative(grant.deadlineTentative),
           source: "AUTO",
           month,
           postedById: null,
