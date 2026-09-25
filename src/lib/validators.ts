@@ -648,6 +648,7 @@ const hubSourceSchema = z
     'HACK2SKILL',
     'MLH',
     'COLLEGE_WEBSITE',
+    'INDIAHACKATHONS',
     'GOVERNMENT',
     'SOCIAL_MEDIA',
     'ADMIN',
