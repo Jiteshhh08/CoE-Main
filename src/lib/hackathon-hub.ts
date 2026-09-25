@@ -68,6 +68,23 @@ export function normalizeName(value: string): string {
 // than fusing distinct yearly editions; admin merges those via publish.
 // Upgrade path: trigram similarity + same-organizer+date window.
 
+// DB boundary: Opportunity text columns are VARCHAR(191). Clip at the single
+// choke point instead of letting MySQL throw P2000 from every writer.
+export function clipDbString(value: string | null | undefined, max = 191): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
+}
+
+// URLs can't be clipped without corrupting them — NULL when unstoreable.
+export function fitUrl(value: string | null | undefined, max = 191): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > max) return null;
+  return trimmed;
+}
+
 // Hub subset boundary: which Opportunity categories belong in the Hackathon
 // Hub. Used to auto-set showInHub on submit/import; admin toggle overrides.
 const HUB_CATEGORY_HINTS = [

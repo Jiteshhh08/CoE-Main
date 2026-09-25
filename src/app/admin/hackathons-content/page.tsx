@@ -69,6 +69,7 @@ export default function HackathonsContentPage() {
   const [hubStats, setHubStats] = useState<HubStats | null>(null);
   const [candidates, setCandidates] = useState<HubCandidate[]>([]);
   const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [queueFilter, setQueueFilter] = useState('NEEDS_REVIEW,VERIFIED,NEEDS_UPDATE');
   const [sources, setSources] = useState<HubSource[]>([]);
   const [importText, setImportText] = useState('');
   const [sheetUrl, setSheetUrl] = useState('');
@@ -107,11 +108,12 @@ export default function HackathonsContentPage() {
     }
   };
 
-  const loadHub = async () => {
+  const loadHub = async (statusFilter?: string) => {
     try {
+      const queue = statusFilter ?? queueFilter;
       const [statsRes, candRes, srcRes] = await Promise.all([
         fetch('/api/admin/hub/stats', { credentials: 'include' }),
-        fetch('/api/admin/hub/candidates?status=NEEDS_REVIEW', { credentials: 'include' }),
+        fetch(`/api/admin/hub/candidates${queue ? `?status=${encodeURIComponent(queue)}` : ''}`, { credentials: 'include' }),
         fetch('/api/admin/hub/sources', { credentials: 'include' }),
       ]);
       const statsJson = (await statsRes.json()) as ApiResponse<HubStats>;
@@ -538,9 +540,28 @@ export default function HackathonsContentPage() {
 
         {/* Hackathon Hub — review queue (§18, §40 monthly workflow) */}
         <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
-          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hub Review Queue</h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-headline text-2xl font-bold text-[#002155]">Hub Review Queue</h2>
+            <label className="flex items-center gap-2 text-xs text-[#434651]">
+              Show
+              <select
+                value={queueFilter}
+                onChange={(e) => { const v = e.target.value; setQueueFilter(v); setCandidatesLoading(true); void loadHub(v); }}
+                className="border border-[#c4c6d3] bg-white px-2 py-1.5 text-xs outline-none focus:border-[#002155]"
+              >
+                <option value="NEEDS_REVIEW,VERIFIED,NEEDS_UPDATE">Actionable</option>
+                <option value="">All</option>
+                <option value="DISCOVERED">Discovered</option>
+                <option value="NEEDS_REVIEW">Needs review</option>
+                <option value="VERIFIED">Verified</option>
+                <option value="NEEDS_UPDATE">Needs update</option>
+                <option value="PUBLISHED">Published</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </label>
+          </div>
           <p className="mt-1 text-xs text-[#747782]">
-            Discovered events awaiting review. Verify important fields, then publish. Run <span className="font-mono">GET /api/cron/hub?job=all</span> daily (or via scheduler) for discovery → extraction → monitoring.
+            Verify important fields, then publish — verified rows stay here until published. Run <span className="font-mono">GET /api/cron/hub?job=all</span> daily (or via scheduler) for discovery → extraction → monitoring.
           </p>
           {candidatesLoading ? (
             <p className="mt-4 text-sm text-[#747782]">Loading candidates…</p>

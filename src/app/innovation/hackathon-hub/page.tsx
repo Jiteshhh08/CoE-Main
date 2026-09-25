@@ -126,18 +126,6 @@ export default function HackathonHubPage() {
     }
   };
 
-  const quick = (label: string, onClick: () => void, active: boolean) => (
-    <button
-      key={label}
-      onClick={onClick}
-      className={`rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-wider ${
-        active ? 'border-[#002155] bg-[#002155] text-white' : 'border-[#c4c6d3] bg-white text-[#434651] hover:border-[#002155] hover:text-[#002155]'
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <main className="max-w-7xl mx-auto mt-10 px-4 md:px-8 pt-[120px] pb-14 min-h-screen">
       <header className="mb-6 border-l-4 border-[#002155] pl-4 md:pl-6">
@@ -151,19 +139,6 @@ export default function HackathonHubPage() {
           Find upcoming hackathons and innovation challenges — Mumbai, Maharashtra, India-wide and online.
         </p>
       </header>
-
-      <section className="mb-4 flex flex-wrap gap-2">
-        {quick('All', () => { setCity(''); setMode(''); setRegStatus(''); setMonth(''); }, !city && !mode && !regStatus && !month)}
-        {quick('Mumbai', () => setCity('Mumbai'), city === 'Mumbai')}
-        {quick('Pune', () => setCity('Pune'), city === 'Pune')}
-        {quick('Online', () => setMode('ONLINE'), mode === 'ONLINE')}
-        {quick('Open', () => setRegStatus('OPEN'), regStatus === 'OPEN')}
-        {quick('Closing Soon', () => setRegStatus('CLOSING_SOON'), regStatus === 'CLOSING_SOON')}
-        {quick('This Month', () => {
-          const d = new Date();
-          setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-        }, month !== '')}
-      </section>
 
       <section className="mb-6 bg-white border border-[#c4c6d3] p-4 md:p-5">
         <input

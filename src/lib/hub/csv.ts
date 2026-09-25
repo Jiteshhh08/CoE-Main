@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { opportunityCreateSchema } from '@/lib/validators';
-import { normalizeName } from '@/lib/hackathon-hub';
+import { normalizeName, clipDbString, fitUrl } from '@/lib/hackathon-hub';
 
 // Google Sheet as lightweight CMS (§24): admins paste a Sheet CSV-export URL
 // or upload a CSV file. One row = one hackathon. Never blindly overwrites
@@ -118,26 +118,26 @@ export async function runCsvImport(
       }
 
       const record = {
-        title: data.title,
-        category: data.category,
-        organizer: data.organizer,
+        title: clipDbString(data.title) as string,
+        category: clipDbString(data.category) as string,
+        organizer: clipDbString(data.organizer) as string,
         description: data.description || null,
         registrationDeadline: data.registrationDeadline ? new Date(data.registrationDeadline) : null,
-        eligibility: data.eligibility || null,
-        prize: data.prize || null,
+        eligibility: clipDbString(data.eligibility),
+        prize: clipDbString(data.prize),
         themes: data.themes?.length ? data.themes : undefined,
         technologies: data.technologies?.length ? data.technologies : undefined,
-        applicationUrl: data.applicationUrl || null,
+        applicationUrl: fitUrl(data.applicationUrl),
         facultyRecommended: data.facultyRecommended ?? false,
         mode: (data as { mode?: string }).mode || null,
-        venue: (data as { venue?: string }).venue || null,
-        city: (data as { city?: string }).city || null,
-        state: (data as { state?: string }).state || null,
+        venue: clipDbString((data as { venue?: string }).venue),
+        city: clipDbString((data as { city?: string }).city),
+        state: clipDbString((data as { state?: string }).state),
         startDate: (data as { startDate?: string }).startDate ? new Date((data as { startDate?: string }).startDate as string) : null,
         endDate: (data as { endDate?: string }).endDate ? new Date((data as { endDate?: string }).endDate as string) : null,
         teamMin: (data as { teamMin?: number }).teamMin ?? null,
         teamMax: (data as { teamMax?: number }).teamMax ?? null,
-        sourceUrl: data.sourceUrl || null,
+        sourceUrl: (data.sourceUrl || null) as string | null,
         sourceType: data.sourceType ?? 'GOOGLE_SHEET',
       };
 
