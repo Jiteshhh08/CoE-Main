@@ -3,15 +3,17 @@ import prisma from '@/lib/prisma';
 import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers';
 import { ensureHubSources } from '@/lib/hub/sources';
 
-// GET /api/admin/hub/candidates?status=NEEDS_REVIEW — review queue (§18, §40)
+// GET /api/admin/hub/candidates?status=NEEDS_REVIEW,VERIFIED — review queue (§18, §40)
+// status accepts a comma-separated list; omit for all rows.
 export async function GET(req: NextRequest) {
   try {
     const user = authenticate(req);
     if (!user) return errorRes('Unauthorized', [], 401);
     if (!authorize(user, 'ADMIN')) return errorRes('Forbidden', ['Admin access required'], 403);
-    const status = req.nextUrl.searchParams.get('status')?.trim().toUpperCase() || undefined;
+    const raw = req.nextUrl.searchParams.get('status')?.trim().toUpperCase() || '';
+    const statuses = raw.split(',').map((s) => s.trim()).filter(Boolean);
     const rows = await (prisma as any).hubCandidate.findMany({
-      where: status ? { status } : {},
+      where: statuses.length > 0 ? { status: { in: statuses } } : {},
       orderBy: { discoveredAt: 'desc' },
       take: 100,
     });

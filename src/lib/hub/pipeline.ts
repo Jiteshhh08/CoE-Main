@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { normalizeName, getRegistrationStatus, getEventStatus } from '@/lib/hackathon-hub';
+import { normalizeName, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
 import type { ExtractedEvent } from './extract';
 import { mandatoryMissing } from './extract';
 
@@ -12,18 +12,24 @@ export async function publishCandidate(candidateId: number, actorId: number) {
     throw new Error(`Cannot publish from status ${candidate.status}`);
   }
   const e = (candidate.extracted ?? {}) as Partial<ExtractedEvent>;
-  if (!e.eventName || !e.organiser || !e.startDate || !e.registrationDeadline || !e.registrationUrl || !e.mode) {
-    throw new Error(`Incomplete extraction — missing: ${mandatoryMissing(e as ExtractedEvent).join(', ')}`);
+  // Admin clicking Publish IS the human verification (§36.3): missing fields
+  // stay NULL (§41.1) instead of blocking. Only title is truly required.
+  const missing = mandatoryMissing(e as ExtractedEvent);
+  if (!e.eventName && !candidate.title) {
+    throw new Error(`Nothing to publish — missing: ${missing.join(', ')}`);
   }
 
-  // Dedupe (§16): URL first, then normalized name+organizer.
+  const title = e.eventName ?? candidate.title ?? 'Untitled hackathon';
+  const organizer = e.organiser ?? 'Unknown organizer';
+
+  // Dedupe (§16): URL first, then normalized name+organizer (skipped when unknown).
   let existing: { id: number } | null = null;
   if (e.registrationUrl) {
     existing =
       (await (prisma as any).opportunity.findFirst({ where: { sourceUrl: e.registrationUrl } })) ??
       (await (prisma as any).opportunity.findFirst({ where: { applicationUrl: e.registrationUrl } }));
   }
-  if (!existing) {
+  if (!existing && e.organiser && e.eventName) {
     const rivals = await (prisma as any).opportunity.findMany({
       where: { organizer: e.organiser },
       select: { id: true, title: true },
@@ -33,19 +39,19 @@ export async function publishCandidate(candidateId: number, actorId: number) {
   }
 
   const record = {
-    title: e.eventName,
+    title: clipDbString(title) as string,
     category: 'Hackathon',
-    organizer: e.organiser,
-    description: null,
-    registrationDeadline: new Date(e.registrationDeadline),
-    eligibility: e.eligibility ?? null,
-    prize: e.prizePool ?? null,
+    organizer: clipDbString(organizer) as string,
+    description: missing.length > 0 ? `Auto-published with missing fields: ${missing.join(', ')} — verify on the official page.` : null,
+    registrationDeadline: e.registrationDeadline ? new Date(e.registrationDeadline) : null,
+    eligibility: clipDbString(e.eligibility),
+    prize: clipDbString(e.prizePool),
     themes: e.domains?.length ? e.domains : undefined,
-    applicationUrl: e.registrationUrl,
-    mode: e.mode,
-    venue: e.venue ?? null,
-    city: e.city ?? null,
-    startDate: new Date(e.startDate),
+    applicationUrl: fitUrl(e.registrationUrl),
+    mode: e.mode ?? null,
+    venue: clipDbString(e.venue),
+    city: clipDbString(e.city),
+    startDate: e.startDate ? new Date(e.startDate) : null,
     endDate: e.endDate ? new Date(e.endDate) : null,
     teamMin: e.teamMin ?? null,
     teamMax: e.teamMax ?? null,

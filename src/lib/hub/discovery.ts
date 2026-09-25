@@ -11,6 +11,9 @@ const HACKATHON_KEYWORDS =
   /hackathon|hackfest|codefest|ideathon|datathon|competition|challenge|contest/i;
 const NOISE =
   /job|recruitment|vacancy|admission|result|merit list|tender|auction/i;
+// Listing/nav pages, not events (e.g. "Explore hackathons", "Organize a hackathon").
+export const LISTING_TITLES =
+  /^(explore|organize|organise|all|upcoming|past|open|find|browse|discover|host)\b[\w\s|–-]*hackathons?\b[\w\s|–-]*$/i;
 
 export function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
@@ -72,6 +75,7 @@ export function extractEventLinks(html: string, base: string): DiscoveredLink[] 
     if (!url || !url.startsWith('https://')) continue;
     const title = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
     if (title.length < 8 || !HACKATHON_KEYWORDS.test(title) || NOISE.test(title)) continue;
+    if (LISTING_TITLES.test(title)) continue;
     const key = url.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
