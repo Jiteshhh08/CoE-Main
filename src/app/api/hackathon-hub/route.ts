@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { authenticate, successRes, errorRes } from '@/lib/api-helpers';
 import { getRegistrationStatus, getEventStatus } from '@/lib/hackathon-hub';
+import { kmFromTcet } from '@/lib/hub/pipeline';
 
 // GET /api/hackathon-hub — public student listing (Phase 1, spec §28-29)
 // Filters: search, city, mode, domain (themes), month (YYYY-MM), regStatus, eventStatus, sort
@@ -87,10 +88,20 @@ export async function GET(req: NextRequest) {
       myInterestMap = new Map(interests.map((i) => [i.opportunityId, { status: i.status }]));
     }
 
-    const payload = enriched.map((opp) => ({
-      ...opp,
-      myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
-    }));
+    const payload = enriched.map((opp) => {
+      const distanceKm = kmFromTcet((opp as { city?: string | null }).city ?? null);
+      return {
+        ...opp,
+        myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
+        distanceKm,
+        distanceLabel:
+          (opp as { mode?: string | null }).mode === 'ONLINE'
+            ? 'Online'
+            : distanceKm == null
+              ? null
+              : `${distanceKm} km from TCET`,
+      };
+    });
 
     return successRes(payload, 'Hackathon hub events retrieved successfully.');
   } catch (err) {

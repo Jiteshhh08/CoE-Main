@@ -34,6 +34,8 @@ type HubOpportunity = {
   createdAt: string;
   regStatus: 'OPEN' | 'CLOSING_SOON' | 'CLOSED' | 'UNKNOWN';
   eventStatus: 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'UNKNOWN';
+  distanceKm: number | null;
+  distanceLabel: string | null;
   myInterest: { status: 'SAVED' | 'INTERESTED' } | null;
 };
 
@@ -252,7 +254,7 @@ export default function HackathonHubPage() {
                 <p className="mt-1 text-sm text-[#434651]">by {opp.organizer}</p>
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#434651]">
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Date</dt><dd>{dateLabel}</dd></div>
-                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Location</dt><dd>{location}{opp.mode ? ` · ${opp.mode}` : ''}</dd></div>
+                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Location</dt><dd>{location}{opp.mode ? ` · ${opp.mode}` : ''}{opp.distanceLabel ? ` · ${opp.distanceLabel}` : ''}</dd></div>
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Team</dt><dd>{team}</dd></div>
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Domain</dt><dd>{domainLabel}</dd></div>
                   <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Prize</dt><dd>{opp.prize ?? '—'}</dd></div>

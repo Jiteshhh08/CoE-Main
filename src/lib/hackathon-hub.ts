@@ -63,3 +63,7 @@ export function getEventStatus(
 export function normalizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
+// ponytail: dedupe uses exact normalized-name equality (URL match is the
+// primary key). Year-suffixed variants intentionally do NOT merge — safer
+// than fusing distinct yearly editions; admin merges those via publish.
+// Upgrade path: trigram similarity + same-organizer+date window.

@@ -60,6 +60,99 @@ export default function HackathonsContentPage() {
   const [actionError, setActionError] = useState('');
   const [actionId, setActionId] = useState<number | null>(null);
 
+  // ── Hackathon Hub pipeline ──
+  type HubStats = { totalEvents: number; active: number; closingSoon: number; needsReview: number; expired: number; newThisWeek: number };
+  type HubCandidate = { id: number; url: string; source: string; sourceType: string; status: string; title: string | null; confidence: number | null; error: string | null; discoveredAt: string };
+  type HubSource = { key: string; label: string; method: string; frequency: string; priority: number; enabled: boolean };
+  const [hubStats, setHubStats] = useState<HubStats | null>(null);
+  const [candidates, setCandidates] = useState<HubCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [sources, setSources] = useState<HubSource[]>([]);
+  const [importText, setImportText] = useState('');
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState('');
+
+  const loadHub = async () => {
+    try {
+      const [statsRes, candRes, srcRes] = await Promise.all([
+        fetch('/api/admin/hub/stats', { credentials: 'include' }),
+        fetch('/api/admin/hub/candidates?status=NEEDS_REVIEW', { credentials: 'include' }),
+        fetch('/api/admin/hub/sources', { credentials: 'include' }),
+      ]);
+      const statsJson = (await statsRes.json()) as ApiResponse<HubStats>;
+      const candJson = (await candRes.json()) as ApiResponse<HubCandidate[]>;
+      const srcJson = (await srcRes.json()) as ApiResponse<HubSource[]>;
+      if (statsJson.success) setHubStats(statsJson.data);
+      if (candJson.success) setCandidates(candJson.data ?? []);
+      if (srcJson.success) setSources(srcJson.data ?? []);
+    } catch {
+      /* hub panels stay empty on failure */
+    } finally {
+      setCandidatesLoading(false);
+    }
+  };
+
+  const candidateAction = (candidate: HubCandidate, action: 'verify' | 'reject' | 'publish') => {
+    setActionId(candidate.id);
+    void runAction(`Candidate ${action}d`, async () => {
+      const res = await fetch(`/api/admin/hub/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action }),
+      });
+      return (await res.json()) as ApiResponse<unknown>;
+    })
+      .then(() => void loadHub())
+      .finally(() => setActionId(null));
+  };
+
+  const runImport = async () => {
+    setActionMessage('');
+    setActionError('');
+    setImportResult('');
+    if (!importText.trim() && !sheetUrl.trim()) {
+      setActionError('Paste CSV text or a Google Sheet CSV-export URL.');
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await fetch('/api/admin/hub/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ csvText: importText || undefined, sheetUrl: sheetUrl.trim() || undefined }),
+      });
+      const json = (await res.json()) as ApiResponse<{ inserted: number; updated: number; rejected: number; published: number; errors: string[] }>;
+      if (!json.success) throw new Error(json.message || 'Import failed.');
+      const r = json.data;
+      setImportResult(
+        r ? `Inserted ${r.inserted} · Updated ${r.updated} · Rejected ${r.rejected} · Published ${r.published}${r.errors?.length ? ` · First issue: ${r.errors[0]}` : ''}` : 'Import completed.'
+      );
+      setActionMessage('Import completed.');
+      void loadHub();
+      void loadOpportunities();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const toggleSource = (source: HubSource) => {
+    void (async () => {
+      const res = await fetch('/api/admin/hub/sources', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ key: source.key, enabled: !source.enabled }),
+      });
+      const json = (await res.json()) as ApiResponse<unknown>;
+      if (json.success) void loadHub();
+    })();
+  };
+
   // ── Learning resources ──
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(true);
@@ -105,6 +198,7 @@ export default function HackathonsContentPage() {
   useEffect(() => {
     void loadOpportunities();
     void loadResources();
+    void loadHub();
   }, []);
 
   const runAction = async (label: string, handler: () => Promise<ApiResponse<unknown>>) => {
@@ -334,6 +428,122 @@ export default function HackathonsContentPage() {
               })}
             </ul>
           )}
+        </section>
+
+        {/* Hackathon Hub — dashboard (§39) */}
+        <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
+          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hackathon Hub — Dashboard</h2>
+          {hubStats ? (
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
+              {[
+                ['Total', hubStats.totalEvents],
+                ['Active', hubStats.active],
+                ['Closing Soon', hubStats.closingSoon],
+                ['Needs Review', hubStats.needsReview],
+                ['Expired', hubStats.expired],
+                ['New This Week', hubStats.newThisWeek],
+              ].map(([label, value]) => (
+                <div key={label} className="border border-[#e3e2df] bg-[#f5f4f0] p-3 text-center">
+                  <p className="font-headline text-2xl font-bold text-[#002155]">{value}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#747782]">{label}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-[#747782]">Loading hub stats…</p>
+          )}
+        </section>
+
+        {/* Hackathon Hub — review queue (§18, §40 monthly workflow) */}
+        <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
+          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hub Review Queue</h2>
+          <p className="mt-1 text-xs text-[#747782]">
+            Discovered events awaiting review. Verify important fields, then publish. Run <span className="font-mono">GET /api/cron/hub?job=all</span> daily (or via scheduler) for discovery → extraction → monitoring.
+          </p>
+          {candidatesLoading ? (
+            <p className="mt-4 text-sm text-[#747782]">Loading candidates…</p>
+          ) : candidates.length === 0 ? (
+            <p className="mt-4 border border-dashed border-[#c4c6d3] bg-[#faf9f5] p-6 text-center text-sm text-[#747782]">
+              Queue is clear — new discoveries will appear here.
+            </p>
+          ) : (
+            <ul className="mt-4 divide-y divide-[#e3e2df]">
+              {candidates.map((candidate) => {
+                const busy = actionId === candidate.id;
+                return (
+                  <li key={candidate.id} className="py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-headline text-base font-bold text-[#002155]">{candidate.title ?? candidate.url}</h3>
+                        <p className="mt-1 break-all text-xs text-[#434651]">
+                          {candidate.source} · {candidate.sourceType} · {candidate.status}
+                          {candidate.confidence != null ? ` · confidence ${candidate.confidence}` : ''}
+                        </p>
+                        {candidate.error ? <p className="mt-1 text-xs text-[#991b1b]">{candidate.error}</p> : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button onClick={() => candidateAction(candidate, 'verify')} disabled={busy} className="border border-[#0b6b2e] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#0b6b2e] hover:bg-[#0b6b2e] hover:text-white disabled:opacity-50">
+                          Verify
+                        </button>
+                        <button onClick={() => candidateAction(candidate, 'publish')} disabled={busy} className="bg-[#002155] px-3 py-2 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-50">
+                          Publish
+                        </button>
+                        <button onClick={() => candidateAction(candidate, 'reject')} disabled={busy} className="border border-[#991b1b] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#991b1b] hover:bg-[#991b1b] hover:text-white disabled:opacity-50">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {/* Hackathon Hub — Sheet/CSV import (§24) */}
+        <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
+          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hub Import — Sheet / CSV</h2>
+          <p className="mt-1 text-xs text-[#747782]">
+            Paste CSV text (header row: eventName, organiser, startDate, registrationDeadline, mode, city, …) or a Google Sheet CSV-export URL (File → Share → Publish to web → CSV). Admin imports publish immediately; conflicts with verified rows are flagged, never overwritten.
+          </p>
+          <input
+            value={sheetUrl}
+            onChange={(e) => setSheetUrl(e.target.value)}
+            placeholder="https://docs.google.com/spreadsheets/…/export?format=csv"
+            className={inputClass + ' mt-4'}
+          />
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            rows={4}
+            placeholder="eventName,organiser,startDate,registrationDeadline,mode,city,registrationUrl"
+            className={inputClass + ' mt-3 font-mono'}
+          />
+          <div className="mt-3 flex items-center gap-4">
+            <button onClick={() => void runImport()} disabled={importing} className="bg-[#002155] px-4 py-3 text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60">
+              {importing ? 'Importing…' : 'Run Import'}
+            </button>
+            {importResult ? <p className="text-xs text-[#434651]">{importResult}</p> : null}
+          </div>
+        </section>
+
+        {/* Hackathon Hub — sources (§8) */}
+        <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
+          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hub Sources</h2>
+          <p className="mt-1 text-xs text-[#747782]">Toggle discovery sources. PAGE seeds are crawled by the discover job; MANUAL sources accept pasted URLs and CSV rows.</p>
+          <ul className="mt-4 divide-y divide-[#e3e2df]">
+            {sources.map((source) => (
+              <li key={source.key} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                <div>
+                  <p className="text-sm font-bold text-[#002155]">{source.label}</p>
+                  <p className="text-xs text-[#747782]">{source.method} · {source.frequency} · priority {source.priority}</p>
+                </div>
+                <button onClick={() => toggleSource(source)} className={`border px-3 py-2 text-xs font-bold uppercase tracking-wider ${source.enabled ? 'border-[#0b6b2e] text-[#0b6b2e]' : 'border-[#c4c6d3] text-[#747782]'}`}>
+                  {source.enabled ? 'Enabled' : 'Disabled'}
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
 
         {/* Learning Resources */}
