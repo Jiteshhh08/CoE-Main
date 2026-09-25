@@ -51,6 +51,7 @@ export async function publishCandidate(candidateId: number, actorId: number) {
     mode: e.mode ?? null,
     venue: clipDbString(e.venue),
     city: clipDbString(e.city),
+    state: clipDbString(e.state),
     startDate: e.startDate ? new Date(e.startDate) : null,
     endDate: e.endDate ? new Date(e.endDate) : null,
     teamMin: e.teamMin ?? null,
