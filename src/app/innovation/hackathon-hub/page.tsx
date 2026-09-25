@@ -165,52 +165,90 @@ export default function HackathonHubPage() {
         }, month !== '')}
       </section>
 
-      <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-6 bg-white border border-[#c4c6d3] p-4">
+      <section className="mb-6 bg-white border border-[#c4c6d3] p-4 md:p-5">
         <input
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search hackathons…"
-          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
+          placeholder="Search by name, organizer or keyword…"
+          aria-label="Search hackathons"
+          className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2.5 text-sm outline-none focus:border-[#002155]"
         />
-        <select value={city} onChange={(e) => setCity(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
-          <option value="">All cities</option>
-          {cities.filter(Boolean).map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <select value={mode} onChange={(e) => setMode(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
-          <option value="">All modes</option>
-          <option value="ONLINE">Online</option>
-          <option value="OFFLINE">Offline</option>
-          <option value="HYBRID">Hybrid</option>
-        </select>
-        <select value={regStatus} onChange={(e) => setRegStatus(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
-          <option value="">Any status</option>
-          <option value="OPEN">Open</option>
-          <option value="CLOSING_SOON">Closing soon</option>
-          <option value="CLOSED">Closed</option>
-        </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value as 'newest' | 'deadline')} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
-          <option value="newest">Newest</option>
-          <option value="deadline">Deadline</option>
-        </select>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          aria-label="Filter by month"
-          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
-        />
-        <input
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          placeholder="Domain / tech (e.g. AI, Cloud)…"
-          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
-        />
-        <p className="md:col-span-2 text-xs text-[#747782] self-center">
-          {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates
-        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">Where</p>
+            <label htmlFor="hub-city" className="mb-1 block text-xs text-[#747782]">City</label>
+            <select id="hub-city" value={city} onChange={(e) => setCity(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
+              <option value="">All cities</option>
+              {cities.filter(Boolean).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">How</p>
+            <label htmlFor="hub-mode" className="mb-1 block text-xs text-[#747782]">Mode</label>
+            <select id="hub-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
+              <option value="">Online + Offline + Hybrid</option>
+              <option value="ONLINE">Online</option>
+              <option value="OFFLINE">Offline</option>
+              <option value="HYBRID">Hybrid</option>
+            </select>
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">Status</p>
+            <label htmlFor="hub-reg" className="mb-1 block text-xs text-[#747782]">Registration</label>
+            <select id="hub-reg" value={regStatus} onChange={(e) => setRegStatus(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
+              <option value="">Open + Closing soon + Closed</option>
+              <option value="OPEN">Open</option>
+              <option value="CLOSING_SOON">Closing soon</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">When</p>
+            <label htmlFor="hub-month" className="mb-1 block text-xs text-[#747782]">Month</label>
+            <input
+              id="hub-month"
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]"
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">What</p>
+            <label htmlFor="hub-domain" className="mb-1 block text-xs text-[#747782]">Domain / Technology</label>
+            <input
+              id="hub-domain"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="e.g. AI, Cloud…"
+              className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]"
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">Order</p>
+            <label htmlFor="hub-sort" className="mb-1 block text-xs text-[#747782]">Sort by</label>
+            <select id="hub-sort" value={sort} onChange={(e) => setSort(e.target.value as 'newest' | 'deadline')} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
+              <option value="newest">Newest first</option>
+              <option value="deadline">Deadline soonest</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e2df] pt-3">
+          <p className="text-xs text-[#747782]">
+            {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates
+          </p>
+          <button
+            onClick={() => { setSearch(''); setCity(''); setMode(''); setRegStatus(''); setDomain(''); setMonth(''); setSort('newest'); }}
+            className="border border-[#c4c6d3] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#434651] hover:border-[#002155] hover:text-[#002155]"
+          >
+            Clear all
+          </button>
+        </div>
       </section>
 
       {error ? <div className="mb-6 border border-[#991b1b] bg-[#fdf2f2] p-4 text-sm text-[#991b1b]">{error}</div> : null}
