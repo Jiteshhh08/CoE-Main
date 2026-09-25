@@ -90,8 +90,6 @@ export async function POST(req: NextRequest) {
         applicationUrl: data.applicationUrl || null,
         facultyRecommended: data.facultyRecommended ?? false,
         status: 'PENDING',
-<<<<<<< HEAD
-=======
         mode: data.mode || null,
         venue: data.venue || null,
         city: data.city || null,
@@ -104,7 +102,6 @@ export async function POST(req: NextRequest) {
         sourceType: data.sourceType ?? 'ADMIN',
         verificationStatus: data.verificationStatus ?? 'UNVERIFIED',
         showInHub: isHubCategory(data.category),
->>>>>>> 95e7229 (feat: add showInHub functionality to manage visibility of opportunities in Hackathon Hub)
         createdById: user.id,
       },
     });

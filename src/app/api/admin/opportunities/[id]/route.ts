@@ -50,8 +50,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (typeof data.applicationUrl !== 'undefined') updateData.applicationUrl = data.applicationUrl || null;
     if (typeof data.facultyRecommended !== 'undefined') updateData.facultyRecommended = data.facultyRecommended;
-<<<<<<< HEAD
-=======
     if (typeof data.showInHub !== 'undefined') updateData.showInHub = data.showInHub;
     if (typeof data.mode !== 'undefined') updateData.mode = data.mode || null;
     if (typeof data.venue !== 'undefined') updateData.venue = data.venue || null;
@@ -71,7 +69,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       updateData.verificationStatus = data.verificationStatus;
       (updateData as Record<string, unknown>).lastVerifiedAt = new Date();
     }
->>>>>>> 95e7229 (feat: add showInHub functionality to manage visibility of opportunities in Hackathon Hub)
 
     if (Object.keys(updateData).length === 0) {
       return errorRes('No fields to update', [], 400);
