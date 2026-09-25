@@ -639,6 +639,33 @@ export function isValidDepartment(value: string): value is Department {
 
 // ─── External Opportunities & Learning Hub Validators ───
 
+const hubDateSchema = z
+  .string()
+  .refine((d) => !isNaN(Date.parse(d)), 'Invalid date')
+  .optional()
+  .or(z.literal(''));
+
+const hubModeSchema = z.enum(['ONLINE', 'OFFLINE', 'HYBRID']).optional().or(z.literal(''));
+const hubSourceSchema = z
+  .enum([
+    'OFFICIAL_WEBSITE',
+    'DEVFOLIO',
+    'UNSTOP',
+    'HACKEREARTH',
+    'HACK2SKILL',
+    'MLH',
+    'COLLEGE_WEBSITE',
+    'GOVERNMENT',
+    'SOCIAL_MEDIA',
+    'ADMIN',
+    'GOOGLE_SHEET',
+    'OTHER',
+  ])
+  .optional();
+const hubVerificationSchema = z
+  .enum(['UNVERIFIED', 'PLATFORM_VERIFIED', 'OFFICIAL_SOURCE', 'ADMIN_VERIFIED', 'VERIFIED'])
+  .optional();
+
 export const opportunityCreateSchema = z.object({
   title: z.string().trim().min(2, 'Title must be at least 2 characters'),
   category: z.string().trim().min(2, 'Category must be at least 2 characters'),
@@ -655,6 +682,17 @@ export const opportunityCreateSchema = z.object({
   themes: z.array(z.string().trim().min(1)).optional(),
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
+  mode: hubModeSchema,
+  venue: z.string().trim().optional().or(z.literal('')),
+  city: z.string().trim().optional().or(z.literal('')),
+  state: z.string().trim().optional().or(z.literal('')),
+  startDate: hubDateSchema,
+  endDate: hubDateSchema,
+  teamMin: z.coerce.number().int().min(1).max(20).optional(),
+  teamMax: z.coerce.number().int().min(1).max(20).optional(),
+  sourceUrl: z.string().trim().optional().or(z.literal('')),
+  sourceType: hubSourceSchema,
+  verificationStatus: hubVerificationSchema,
 });
 
 export const opportunityUpdateSchema = z.object({
@@ -674,6 +712,17 @@ export const opportunityUpdateSchema = z.object({
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  mode: hubModeSchema,
+  venue: z.string().trim().optional().or(z.literal('')),
+  city: z.string().trim().optional().or(z.literal('')),
+  state: z.string().trim().optional().or(z.literal('')),
+  startDate: hubDateSchema,
+  endDate: hubDateSchema,
+  teamMin: z.coerce.number().int().min(1).max(20).optional(),
+  teamMax: z.coerce.number().int().min(1).max(20).optional(),
+  sourceUrl: z.string().trim().optional().or(z.literal('')),
+  sourceType: hubSourceSchema,
+  verificationStatus: hubVerificationSchema,
 });
 
 export const opportunityStatusSchema = z.object({

@@ -18,6 +18,13 @@ type Opportunity = {
   applicationUrl: string | null;
   facultyRecommended: boolean;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  mode: string | null;
+  city: string | null;
+  venue: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  verificationStatus: string | null;
+  sourceType: string | null;
   createdAt: string;
 };
 
@@ -121,6 +128,19 @@ export default function HackathonsContentPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status }),
+      });
+      return (await res.json()) as ApiResponse<unknown>;
+    }).finally(() => setActionId(null));
+  };
+
+  const verifyOpportunity = (opportunity: Opportunity) => {
+    setActionId(opportunity.id);
+    void runAction(`Verified "${opportunity.title}"`, async () => {
+      const res = await fetch(`/api/admin/opportunities/${opportunity.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ verificationStatus: 'ADMIN_VERIFIED' }),
       });
       return (await res.json()) as ApiResponse<unknown>;
     }).finally(() => setActionId(null));
@@ -263,6 +283,9 @@ export default function HackathonsContentPage() {
                           {opportunity.registrationDeadline
                             ? ` · Deadline ${new Date(opportunity.registrationDeadline).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`
                             : ''}
+                          {opportunity.city ? ` · ${opportunity.city}` : ''}
+                          {opportunity.mode ? ` · ${opportunity.mode}` : ''}
+                          {` · ${opportunity.verificationStatus ?? 'UNVERIFIED'}`}
                         </p>
                         {opportunity.description ? (
                           <p className="mt-1 line-clamp-2 text-xs text-[#747782]">{opportunity.description}</p>
@@ -285,6 +308,16 @@ export default function HackathonsContentPage() {
                             className="border border-[#991b1b] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#991b1b] hover:bg-[#991b1b] hover:text-white disabled:opacity-50"
                           >
                             Reject
+                          </button>
+                        ) : null}
+                        {opportunity.verificationStatus !== 'ADMIN_VERIFIED' &&
+                        opportunity.verificationStatus !== 'VERIFIED' ? (
+                          <button
+                            onClick={() => verifyOpportunity(opportunity)}
+                            disabled={busy}
+                            className="border border-[#002155] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white disabled:opacity-50"
+                          >
+                            Verify
                           </button>
                         ) : null}
                         <button

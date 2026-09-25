@@ -980,6 +980,19 @@ model Opportunity {
   applicationUrl       String?
   facultyRecommended   Boolean   @default(false)
   status               String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  // ── Hackathon Hub Phase 1 (§6): discovery/publish metadata, all nullable for zero-backfill ──
+  mode                 String?   // ONLINE | OFFLINE | HYBRID
+  venue                String?
+  city                 String?
+  state                String?
+  startDate            DateTime?
+  endDate              DateTime?
+  teamMin              Int?
+  teamMax              Int?
+  sourceUrl            String?   @db.Text
+  sourceType           String    @default("ADMIN")
+  verificationStatus   String    @default("UNVERIFIED")
+  lastVerifiedAt       DateTime?
   createdById          Int
   createdBy            User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt            DateTime  @default(now())
@@ -990,6 +1003,10 @@ model Opportunity {
   @@index([status])
   @@index([category])
   @@index([registrationDeadline])
+  @@index([mode])
+  @@index([city])
+  @@index([verificationStatus])
+  @@index([startDate])
   @@map("opportunities")
 }
 
