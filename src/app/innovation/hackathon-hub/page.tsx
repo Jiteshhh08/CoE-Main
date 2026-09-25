@@ -165,51 +165,50 @@ export default function HackathonHubPage() {
         }, month !== '')}
       </section>
 
-      <section className="mb-6 grid gap-3 md:grid-cols-6 bg-white border border-[#c4c6d3] p-4">
+      <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-6 bg-white border border-[#c4c6d3] p-4">
         <input
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search hackathons…"
-          className="md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
+          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
         />
-        <select value={city} onChange={(e) => setCity(e.target.value)} className="border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
+        <select value={city} onChange={(e) => setCity(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
           <option value="">All cities</option>
           {cities.filter(Boolean).map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
-        <select value={mode} onChange={(e) => setMode(e.target.value)} className="border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
+        <select value={mode} onChange={(e) => setMode(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
           <option value="">All modes</option>
           <option value="ONLINE">Online</option>
           <option value="OFFLINE">Offline</option>
           <option value="HYBRID">Hybrid</option>
         </select>
-        <select value={regStatus} onChange={(e) => setRegStatus(e.target.value)} className="border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
+        <select value={regStatus} onChange={(e) => setRegStatus(e.target.value)} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
           <option value="">Any status</option>
           <option value="OPEN">Open</option>
           <option value="CLOSING_SOON">Closing soon</option>
           <option value="CLOSED">Closed</option>
         </select>
-        <div className="flex gap-2">
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="w-full border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
-          />
-          <select value={sort} onChange={(e) => setSort(e.target.value as 'newest' | 'deadline')} className="border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
-            <option value="newest">Newest</option>
-            <option value="deadline">Deadline</option>
-          </select>
-        </div>
+        <select value={sort} onChange={(e) => setSort(e.target.value as 'newest' | 'deadline')} className="w-full min-w-0 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]">
+          <option value="newest">Newest</option>
+          <option value="deadline">Deadline</option>
+        </select>
+        <input
+          type="month"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+          aria-label="Filter by month"
+          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
+        />
         <input
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
           placeholder="Domain / tech (e.g. AI, Cloud)…"
-          className="md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
+          className="w-full min-w-0 md:col-span-2 border border-[#c4c6d3] px-3 py-2 text-sm outline-none focus:border-[#002155]"
         />
-        <p className="md:col-span-4 text-xs text-[#747782] self-center">
+        <p className="md:col-span-2 text-xs text-[#747782] self-center">
           {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates
         </p>
       </section>

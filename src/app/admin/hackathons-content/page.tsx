@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
@@ -321,7 +322,12 @@ export default function HackathonsContentPage() {
   return (
     <main className="mx-auto mt-10 min-h-screen max-w-[1560px] px-4 pb-14 pt-[120px] md:px-8">
       <header className="mb-8 border-l-4 border-[#002155] pl-4 md:pl-6">
-        <h1 className="font-headline text-3xl font-bold leading-none tracking-tight text-[#002155] md:text-[40px]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#8c4f00]">
+          <Link href="/admin" className="hover:underline">← Admin Panel</Link>
+          <span className="mx-2 text-[#c4c6d3]">|</span>
+          <Link href="/innovation/hackathon-hub" className="hover:underline">Student Hub →</Link>
+        </p>
+        <h1 className="mt-2 font-headline text-3xl font-bold leading-none tracking-tight text-[#002155] md:text-[40px]">
           Hackathons Content
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-[#434651]">
