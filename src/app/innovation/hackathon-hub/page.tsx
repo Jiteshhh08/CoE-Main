@@ -33,6 +33,7 @@ type HubOpportunity = {
   lastVerifiedAt: string | null;
   createdAt: string;
   regStatus: 'OPEN' | 'CLOSING_SOON' | 'CLOSED' | 'UNKNOWN';
+  regStatusSource: 'deadline' | 'startDate' | 'none';
   eventStatus: 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'UNKNOWN';
   distanceKm: number | null;
   distanceLabel: string | null;
@@ -215,7 +216,7 @@ export default function HackathonHubPage() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e2df] pt-3">
           <p className="text-xs text-[#747782]">
-            {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates
+            {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates · * deadline not published, derived from start date
           </p>
           <button
             onClick={() => { setSearch(''); setCity(''); setMode(''); setRegStatus(''); setDomain(''); setMonth(''); setSort('newest'); }}
@@ -250,8 +251,11 @@ export default function HackathonHubPage() {
             return (
               <article key={opp.id} className="flex flex-col border border-[#c4c6d3] bg-white p-5">
                 <div className="flex flex-wrap gap-2">
-                  <span className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${REG_STYLES[opp.regStatus]}`}>
-                    {opp.regStatus.replace('_', ' ')}
+                  <span
+                    title={opp.regStatusSource === 'startDate' ? 'Exact deadline not published — derived from start date' : undefined}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${REG_STYLES[opp.regStatus]}`}
+                  >
+                    {opp.regStatus.replace('_', ' ')}{opp.regStatusSource === 'startDate' ? ' *' : ''}
                   </span>
                   <span className="rounded-full border border-[#c4c6d3] bg-[#efeeea] px-3 py-1 text-[11px] font-semibold text-[#434651]">
                     {opp.eventStatus}
@@ -270,7 +274,7 @@ export default function HackathonHubPage() {
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Team</dt><dd>{team}</dd></div>
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Domain</dt><dd>{domainLabel}</dd></div>
                   <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Prize</dt><dd>{opp.prize ?? '—'}</dd></div>
-                  <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Deadline</dt><dd>{opp.registrationDeadline ? `${formatDate(opp.registrationDeadline)}${days != null && days >= 0 ? ` · ${days}d left` : ''}` : 'No deadline'}</dd></div>
+                  <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Deadline</dt><dd>{opp.registrationDeadline ? `${formatDate(opp.registrationDeadline)}${days != null && days >= 0 ? ` · ${days}d left` : ''}` : opp.startDate ? `Not published — starts ${formatDate(opp.startDate)}` : 'Not published'}</dd></div>
                 </dl>
                 <div className="mt-auto flex flex-wrap gap-2 pt-5">
                   {opp.applicationUrl ? (
@@ -312,7 +316,7 @@ export default function HackathonHubPage() {
                 {selected.description ? <p className="mt-2">{selected.description}</p> : null}
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
-                <p className="mt-1">Deadline: {formatDate(selected.registrationDeadline)} · Status: {selected.regStatus}</p>
+                <p className="mt-1">Deadline: {selected.registrationDeadline ? formatDate(selected.registrationDeadline) : 'Not published'} · Status: {selected.regStatus}{selected.regStatusSource === 'startDate' ? ' (derived from start date)' : ''}</p>
                 {selected.applicationUrl ? <a href={selected.applicationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Register now</a> : null}
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Eligibility</h3>
