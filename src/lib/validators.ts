@@ -667,6 +667,21 @@ export const opportunityUpdateSchema = z.object({
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+<<<<<<< HEAD
+=======
+  showInHub: z.boolean().optional(),
+  mode: hubModeSchema,
+  venue: z.string().trim().optional().or(z.literal('')),
+  city: z.string().trim().optional().or(z.literal('')),
+  state: z.string().trim().optional().or(z.literal('')),
+  startDate: hubDateSchema,
+  endDate: hubDateSchema,
+  teamMin: z.coerce.number().int().min(1).max(20).optional(),
+  teamMax: z.coerce.number().int().min(1).max(20).optional(),
+  sourceUrl: z.string().trim().optional().or(z.literal('')),
+  sourceType: hubSourceSchema,
+  verificationStatus: hubVerificationSchema,
+>>>>>>> 95e7229 (feat: add showInHub functionality to manage visibility of opportunities in Hackathon Hub)
 });
 
 export const opportunityStatusSchema = z.object({

@@ -991,7 +991,6 @@ model Opportunity {
   verificationStatus   String    @default("UNVERIFIED")
   lastVerifiedAt       DateTime?
   pageHash             String?
->>>>>>> 3d32d63 (feat: implement discovery, extraction, monitoring, and pipeline for hackathon events)
   createdById          Int
   createdBy            User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt            DateTime  @default(now())
@@ -1002,6 +1001,10 @@ model Opportunity {
   @@index([status])
   @@index([category])
   @@index([registrationDeadline])
+  @@index([mode])
+  @@index([city])
+  @@index([verificationStatus])
+  @@index([startDate])
   @@map("opportunities")
 }
 

@@ -60,12 +60,12 @@ export async function publishCandidate(candidateId: number, actorId: number) {
   if (existing) {
     const updated = await (prisma as any).opportunity.update({
       where: { id: existing.id },
-      data: { ...record, status: 'APPROVED' },
+      data: { ...record, status: 'APPROVED', showInHub: true },
     });
     opportunityId = updated.id;
   } else {
     const created = await (prisma as any).opportunity.create({
-      data: { ...record, status: 'APPROVED', createdById: actorId },
+      data: { ...record, status: 'APPROVED', showInHub: true, createdById: actorId },
     });
     opportunityId = created.id;
   }
