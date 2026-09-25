@@ -26,6 +26,7 @@ type Opportunity = {
   endDate: string | null;
   verificationStatus: string | null;
   sourceType: string | null;
+  showInHub: boolean;
   createdAt: string;
 };
 
@@ -73,6 +74,38 @@ export default function HackathonsContentPage() {
   const [sheetUrl, setSheetUrl] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState('');
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState('');
+
+  const runPipeline = async () => {
+    setPipelineRunning(true);
+    setPipelineResult('');
+    try {
+      const res = await fetch('/api/cron/hub?job=all', { credentials: 'include' });
+      const json = (await res.json()) as ApiResponse<Record<string, unknown>>;
+      if (!json.success) throw new Error(json.message || 'Pipeline failed.');
+      const d = json.data ?? {};
+      const fmt = (v: unknown) => {
+        if (typeof v === 'object' && v !== null) {
+          const o = v as Record<string, unknown>;
+          if ('skipped' in o) return 'skipped';
+          return Object.entries(o)
+            .filter(([, val]) => typeof val === 'number')
+            .map(([k, val]) => `${k} ${val}`)
+            .join(', ');
+        }
+        return '';
+      };
+      setPipelineResult(
+        `Discovery [${fmt(d.discovery)}] · Extraction [${fmt(d.extraction)}] · Monitor [${fmt(d.monitor)}] · Closing-soon [${fmt(d.closingSoon)}]`
+      );
+      void loadHub();
+    } catch (err) {
+      setPipelineResult(err instanceof Error ? err.message : 'Pipeline failed.');
+    } finally {
+      setPipelineRunning(false);
+    }
+  };
 
   const loadHub = async () => {
     try {
@@ -241,6 +274,19 @@ export default function HackathonsContentPage() {
     }).finally(() => setActionId(null));
   };
 
+  const toggleHub = (opportunity: Opportunity) => {
+    setActionId(opportunity.id);
+    void runAction(`"${opportunity.title}" ${opportunity.showInHub ? 'hidden from Hub' : 'shown in Hub'}`, async () => {
+      const res = await fetch(`/api/admin/opportunities/${opportunity.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ showInHub: !opportunity.showInHub }),
+      });
+      return (await res.json()) as ApiResponse<unknown>;
+    }).finally(() => setActionId(null));
+  };
+
   const deleteOpportunity = (opportunity: Opportunity) => {
     if (!window.confirm(`Delete "${opportunity.title}" permanently?`)) return;
     setActionId(opportunity.id);
@@ -377,6 +423,11 @@ export default function HackathonsContentPage() {
                               Recommended
                             </span>
                           ) : null}
+                          {opportunity.showInHub ? (
+                            <span className="rounded-full bg-[#002155] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-white">
+                              In Hub
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-1 text-xs text-[#434651]">
                           {opportunity.category} · {opportunity.organizer}
@@ -421,6 +472,18 @@ export default function HackathonsContentPage() {
                           </button>
                         ) : null}
                         <button
+                          onClick={() => toggleHub(opportunity)}
+                          disabled={busy}
+                          title={opportunity.showInHub ? 'Hide from Hackathon Hub' : 'Show in Hackathon Hub'}
+                          className={`border px-3 py-2 text-xs font-bold uppercase tracking-wider disabled:opacity-50 ${
+                            opportunity.showInHub
+                              ? 'border-[#002155] bg-[#002155] text-white hover:bg-white hover:text-[#002155]'
+                              : 'border-[#002155] bg-white text-[#002155] hover:bg-[#002155] hover:text-white'
+                          }`}
+                        >
+                          {opportunity.showInHub ? 'In Hub ✓' : 'Hub?'}
+                        </button>
+                        <button
                           onClick={() => deleteOpportunity(opportunity)}
                           disabled={busy}
                           className="border border-[#434651] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#434651] hover:bg-[#002155] hover:border-[#002155] hover:text-white disabled:opacity-50"
@@ -438,7 +501,23 @@ export default function HackathonsContentPage() {
 
         {/* Hackathon Hub — dashboard (§39) */}
         <section className="border border-[#c4c6d3] bg-white p-5 md:p-6">
-          <h2 className="font-headline text-2xl font-bold text-[#002155]">Hackathon Hub — Dashboard</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="font-headline text-2xl font-bold text-[#002155]">Hackathon Hub — Dashboard</h2>
+            <div className="flex items-center gap-3">
+              {pipelineResult ? <p className="max-w-md text-xs text-[#434651]">{pipelineResult}</p> : null}
+              <button
+                onClick={() => void runPipeline()}
+                disabled={pipelineRunning}
+                title="Run discovery → extraction → monitor → closing-soon now"
+                className="bg-[#8c4f00] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
+              >
+                {pipelineRunning ? 'Running…' : 'Run pipeline now'}
+              </button>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-[#747782]">
+            Automated schedule: full pipeline daily 02:00 AM IST, closing-soon reminders every 6h (GitHub Actions `hub-pipeline.yml`).
+          </p>
           {hubStats ? (
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
               {[

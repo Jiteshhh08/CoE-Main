@@ -67,3 +67,16 @@ export function normalizeName(value: string): string {
 // primary key). Year-suffixed variants intentionally do NOT merge — safer
 // than fusing distinct yearly editions; admin merges those via publish.
 // Upgrade path: trigram similarity + same-organizer+date window.
+
+// Hub subset boundary: which Opportunity categories belong in the Hackathon
+// Hub. Used to auto-set showInHub on submit/import; admin toggle overrides.
+const HUB_CATEGORY_HINTS = [
+  'hackathon', 'competition', 'contest', 'ideathon', 'datathon',
+  'codefest', 'hackfest', 'challenge',
+];
+
+export function isHubCategory(category: string | null | undefined): boolean {
+  if (!category) return false;
+  const c = category.toLowerCase();
+  return HUB_CATEGORY_HINTS.some((hint) => c.includes(hint));
+}

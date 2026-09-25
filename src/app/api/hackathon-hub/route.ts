@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
 
     const where: Prisma.OpportunityWhereInput = {
       status: 'APPROVED',
+      showInHub: true,
       ...(city ? { city: { equals: city } } : {}),
       ...(mode && ['ONLINE', 'OFFLINE', 'HYBRID'].includes(mode) ? { mode } : {}),
       ...(search

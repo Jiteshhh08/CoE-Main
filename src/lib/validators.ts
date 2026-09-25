@@ -712,6 +712,7 @@ export const opportunityUpdateSchema = z.object({
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  showInHub: z.boolean().optional(),
   mode: hubModeSchema,
   venue: z.string().trim().optional().or(z.literal('')),
   city: z.string().trim().optional().or(z.literal('')),

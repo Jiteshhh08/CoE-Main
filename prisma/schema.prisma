@@ -994,6 +994,9 @@ model Opportunity {
   verificationStatus   String    @default("UNVERIFIED")
   lastVerifiedAt       DateTime?
   pageHash             String?
+  // Hub subset boundary: only showInHub rows appear in the Hackathon Hub.
+  // Auto-set by category/import/publish flows; admin can override per row.
+  showInHub            Boolean   @default(false)
   createdById          Int
   createdBy            User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt            DateTime  @default(now())
@@ -1008,6 +1011,7 @@ model Opportunity {
   @@index([city])
   @@index([verificationStatus])
   @@index([startDate])
+  @@index([showInHub])
   @@map("opportunities")
 }
 

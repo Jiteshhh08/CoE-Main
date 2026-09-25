@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers';
 import { opportunityCreateSchema } from '@/lib/validators';
+import { isHubCategory } from '@/lib/hackathon-hub';
 
 // GET /api/opportunities — public browse
 export async function GET(req: NextRequest) {
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
         sourceUrl: data.sourceUrl || null,
         sourceType: data.sourceType ?? 'ADMIN',
         verificationStatus: data.verificationStatus ?? 'UNVERIFIED',
+        showInHub: isHubCategory(data.category),
         createdById: user.id,
       },
     });

@@ -50,6 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (typeof data.applicationUrl !== 'undefined') updateData.applicationUrl = data.applicationUrl || null;
     if (typeof data.facultyRecommended !== 'undefined') updateData.facultyRecommended = data.facultyRecommended;
+    if (typeof data.showInHub !== 'undefined') updateData.showInHub = data.showInHub;
     if (typeof data.mode !== 'undefined') updateData.mode = data.mode || null;
     if (typeof data.venue !== 'undefined') updateData.venue = data.venue || null;
     if (typeof data.city !== 'undefined') updateData.city = data.city || null;

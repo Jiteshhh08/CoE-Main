@@ -148,6 +148,8 @@ export async function runCsvImport(
             status: autoApprove ? 'APPROVED' : 'PENDING',
             verificationStatus: autoApprove ? 'ADMIN_VERIFIED' : 'UNVERIFIED',
             lastVerifiedAt: autoApprove ? new Date() : null,
+            // Hub-curated feed: always Hub-visible; category hint as fallback.
+            showInHub: true,
             createdById: opts.actorId,
           },
         });

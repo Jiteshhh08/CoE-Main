@@ -13,7 +13,8 @@ function isAuthorizedCron(req: NextRequest) {
   const expectedSecret = process.env.CRON_SECRET?.trim();
   const headerSecret = (req.headers.get('x-cron-secret') || '').trim();
   const querySecret = (new URL(req.url).searchParams.get('secret') || '').trim();
-  if (expectedSecret) return headerSecret === expectedSecret || querySecret === expectedSecret;
+  if (expectedSecret && (headerSecret === expectedSecret || querySecret === expectedSecret)) return true;
+  // Admin session fallback: lets admins trigger from the UI + local dev runs.
   const user = authenticate(req);
   return Boolean(user && authorize(user, 'ADMIN'));
 }
