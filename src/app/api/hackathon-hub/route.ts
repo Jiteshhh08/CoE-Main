@@ -46,7 +46,10 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     let enriched = rows.map((opp) => ({
       ...opp,
-      regStatus: getRegistrationStatus(opp.registrationDeadline, now),
+      regStatus: getRegistrationStatus(
+        opp.registrationDeadline ?? (opp as { startDate?: Date | null }).startDate ?? null,
+        now,
+      ),
       eventStatus: getEventStatus(
         (opp as { startDate?: Date | null }).startDate ?? null,
         (opp as { endDate?: Date | null }).endDate ?? null,
@@ -90,10 +93,16 @@ export async function GET(req: NextRequest) {
     }
 
     const payload = enriched.map((opp) => {
+      // No-guess rule lives in the DB (NULL stays NULL). For display only,
+      // fall back to the start date so cards don't read UNKNOWN — flagged
+      // via regStatusSource so the UI can mark it unconfirmed.
+      const startDate = (opp as { startDate?: Date | null }).startDate ?? null;
+      const statusSource = opp.registrationDeadline ? 'deadline' : startDate ? 'startDate' : 'none';
       const distanceKm = kmFromTcet((opp as { city?: string | null }).city ?? null);
       return {
         ...opp,
         myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
+        regStatusSource: statusSource,
         distanceKm,
         distanceLabel:
           (opp as { mode?: string | null }).mode === 'ONLINE'
