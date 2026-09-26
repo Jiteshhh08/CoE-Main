@@ -29,48 +29,8 @@ export const HUB_SOURCE_SEEDS: HubSourceSeed[] = [
   { key: 'social', label: 'Social media leads', method: 'MANUAL', frequency: 'WEEKLY', priority: 20 },
 ];
 
-// Search query strategy (§10). Used to document coverage and, when a search
-// provider key is configured, to drive automated queries. Without a key the
-// discovery job still crawls PAGE seeds + admin-supplied URLs.
-export const HUB_QUERY_PACKS: Record<string, string[]> = {
-  location: [
-    'hackathon Mumbai 2026',
-    'hackathon Navi Mumbai 2026',
-    'hackathon Thane 2026',
-    'hackathon Pune 2026',
-    'hackathon Maharashtra 2026',
-    'hackathon India 2026',
-    'online hackathon 2026',
-  ],
-  institution: [
-    'college hackathon Mumbai 2026',
-    'engineering college hackathon Maharashtra 2026',
-    'university hackathon Mumbai 2026',
-  ],
-  technology: [
-    'AI hackathon 2026 India',
-    'ML hackathon 2026 India',
-    'GenAI hackathon 2026',
-    'cybersecurity hackathon India 2026',
-    'cloud hackathon India 2026',
-    'IoT hackathon India 2026',
-    'blockchain hackathon India 2026',
-  ],
-  platform: [
-    'site:devfolio.co hackathon India',
-    'site:unstop.com hackathon Mumbai',
-    'site:hackerearth.com hackathon India',
-    'site:hack2skill.com hackathon',
-    'site:mlh.io hackathon',
-  ],
-};
-
-export const HUB_GEO_TIERS: Record<string, string[]> = {
-  local: ['TCET vicinity', 'Mumbai', 'Navi Mumbai', 'Thane'],
-  maharashtra: ['Pune', 'Nagpur', 'Nashik', 'Chhatrapati Sambhajinagar', 'Kolhapur'],
-  national: ['India-wide', 'Online', 'International online (open to Indian students)'],
-};
-
+// Search query strategy (§10) and geo tiers (§11) live in docs/handoff/HACKATHON_HUB.md.
+// They become code again only when a search-provider key is configured.
 export async function ensureHubSources() {
   for (const seed of HUB_SOURCE_SEEDS) {
     await (prisma as any).hubSource.upsert({

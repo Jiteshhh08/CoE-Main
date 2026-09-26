@@ -40,7 +40,7 @@ export function parseCsv(text: string): Record<string, string>[] {
 
 const HEADER_ALIASES: Record<string, string> = {
   eventname: 'title', title: 'title', name: 'title',
-  organiser: 'organizer', organizer: 'owner',
+  organiser: 'organizer', organizer: 'organizer',
   owner: 'organizer',
   registrationdeadline: 'registrationDeadline', deadline: 'registrationDeadline',
   registrationurl: 'applicationUrl', applicationurl: 'applicationUrl', applylink: 'applicationUrl',

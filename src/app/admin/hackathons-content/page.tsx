@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
 
@@ -108,7 +108,7 @@ export default function HackathonsContentPage() {
     }
   };
 
-  const loadHub = async (statusFilter?: string) => {
+  const loadHub = useCallback(async (statusFilter?: string) => {
     try {
       const queue = statusFilter ?? queueFilter;
       const [statsRes, candRes, srcRes] = await Promise.all([
@@ -127,7 +127,7 @@ export default function HackathonsContentPage() {
     } finally {
       setCandidatesLoading(false);
     }
-  };
+  }, [queueFilter]);
 
   const candidateAction = (candidate: HubCandidate, action: 'verify' | 'reject' | 'publish') => {
     setActionId(candidate.id);
@@ -235,7 +235,7 @@ export default function HackathonsContentPage() {
     void loadOpportunities();
     void loadResources();
     void loadHub();
-  }, []);
+  }, [loadHub]);
 
   const runAction = async (label: string, handler: () => Promise<ApiResponse<unknown>>) => {
     setActionMessage('');

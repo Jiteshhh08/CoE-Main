@@ -184,7 +184,6 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
       pagesFetched++;
       await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
       const hash = sha256(normalizeContent(html));
-      void hash;
       for (const link of extractEventLinks(html, seedUrl)) {
         const existing = await (prisma as any).hubCandidate.findUnique({ where: { url: link.url } });
         if (existing) continue;
@@ -195,6 +194,7 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
             sourceType: sourceTypeFor(source.key),
             status: 'DISCOVERED',
             title: clipDbString(link.title, 191) ?? link.url.slice(0, 191),
+            pageHash: hash,
           },
         });
         discovered++;
