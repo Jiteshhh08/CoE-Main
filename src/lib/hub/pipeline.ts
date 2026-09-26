@@ -149,6 +149,14 @@ const CITY_COORDS: Record<string, { lat: number; lon: number }> = {
   'bengaluru': { lat: 12.9716, lon: 77.5946 },
   'hyderabad': { lat: 17.385, lon: 78.4867 },
   'chennai': { lat: 13.0827, lon: 80.2707 },
+  'kolkata': { lat: 22.5726, lon: 88.3639 },
+  'ahmedabad': { lat: 23.0225, lon: 72.5714 },
+  'jaipur': { lat: 26.9124, lon: 75.7873 },
+  'chandigarh': { lat: 30.7333, lon: 76.7794 },
+  'indore': { lat: 22.7196, lon: 75.8577 },
+  'kochi': { lat: 9.9312, lon: 76.2673 },
+  'guwahati': { lat: 26.1445, lon: 91.7362 },
+  'srivilliputhur': { lat: 9.5125, lon: 77.6336 },
 };
 
 export function kmFromTcet(city: string | null): number | null {
