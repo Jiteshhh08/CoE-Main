@@ -975,8 +975,7 @@ model Opportunity {
   applicationUrl       String?
   facultyRecommended   Boolean   @default(false)
   status               String    @default("PENDING") // PENDING | APPROVED | REJECTED
-<<<<<<< HEAD
-=======
+
   // ── Hackathon Hub Phase 1 (§6): discovery/publish metadata, all nullable for zero-backfill ──
   mode                 String?   // ONLINE | OFFLINE | HYBRID
   venue                String?
