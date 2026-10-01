@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import EventNewsCard from "./EventNewsCard";
 
 type Api<T> = { success: boolean; message: string; data: T };
 type NoticeRow = { id: number; title: string; body: string; pinned: boolean; createdAt: string };
+type NewsRow = { id: number; title: string; caption: string; imageKey: string; pinned: boolean; createdAt: string };
 type MediaRow = { id: number; kind: string; fileKey: string; caption: string | null; createdAt: string };
 
 const storageUrl = (fileKey: string) =>
@@ -18,9 +20,10 @@ export default function EventOpsSections({
 }: {
   eventId: number;
   status: string;
-  ops: { notices?: boolean; feedback?: boolean; mediaReport?: boolean };
+  ops: { notices?: boolean; news?: boolean; feedback?: boolean; mediaReport?: boolean };
 }) {
   const [notices, setNotices] = useState<NoticeRow[] | null>(null);
+  const [news, setNews] = useState<NewsRow[] | null>(null);
   const [media, setMedia] = useState<MediaRow[] | null>(null);
   const [mine, setMine] = useState<{ rating: number; comment: string | null } | null>(null);
   const [rating, setRating] = useState(0);
@@ -40,6 +43,13 @@ export default function EventOpsSections({
           if (b.success) setNotices(b.data.notices);
         });
     }
+    if (ops.news !== false) {
+      void fetch(`/api/innovation/events/${eventId}/ops/news`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((b: Api<{ news: NewsRow[] }>) => {
+          if (b.success) setNews(b.data.news);
+        });
+    }
     if (ops.mediaReport) {
       void fetch(`/api/innovation/events/${eventId}/ops/media`, { credentials: "include" })
         .then((r) => r.json())
@@ -54,7 +64,7 @@ export default function EventOpsSections({
           if (b.success && b.data.mine) setMine(b.data.mine);
         });
     }
-  }, [eventId, ops.notices, ops.mediaReport, ops.feedback]);
+  }, [eventId, ops.notices, ops.news, ops.mediaReport, ops.feedback]);
   useEffect(load, [load]);
 
   const submitFeedback = async () => {
@@ -84,6 +94,26 @@ export default function EventOpsSections({
         <div className="fixed right-4 top-4 z-50 border border-[#0b6b2e] bg-[#f2fbf4] px-4 py-3 text-sm font-semibold text-[#0b6b2e] shadow-lg">
           {toast}
         </div>
+      ) : null}
+
+      {(news ?? []).length > 0 ? (
+        <section className={sectionCls}>
+          <h3 className="font-headline text-xl text-[#002155]">News</h3>
+          <div className="mt-3 space-y-4">
+            {(news ?? []).map((n) => (
+              <EventNewsCard
+                key={n.id}
+                item={{
+                  id: n.id,
+                  title: n.pinned ? `📌 ${n.title}` : n.title,
+                  caption: n.caption,
+                  imageUrl: storageUrl(n.imageKey),
+                  publishedAt: n.createdAt,
+                }}
+              />
+            ))}
+          </div>
+        </section>
       ) : null}
 
       {visibleNotices.length > 0 ? (

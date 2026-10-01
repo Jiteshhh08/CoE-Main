@@ -602,6 +602,7 @@ model HackathonEvent {
   venues             Venue[]
   judgeAssignments   JudgeAssignment[]
   notices            Notice[]
+  news               EventNews[]
   feedback           EventFeedback[]
   media              EventMedia[]
   createdAt          DateTime                     @default(now())
@@ -1161,4 +1162,19 @@ model EventMedia {
 
   @@index([eventId])
   @@map("event_media")
+}
+
+model EventNews {
+  id        Int            @id @default(autoincrement())
+  eventId   Int
+  event     HackathonEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  title     String         @db.VarChar(200)
+  caption   String         @db.Text
+  imageKey  String
+  pinned    Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([eventId])
+  @@map("event_news")
 }
