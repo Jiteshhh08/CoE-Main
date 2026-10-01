@@ -1,5 +1,7 @@
 -- Seed SIH 2026 News for event 3 (prod SIH) so /hackathons/3 shows News Article above Notices
--- This insert is idempotent via NOT EXISTS; imageKey will be overwritten by scripts/seed_sih_news.ts upload in prod
+-- Idempotent via NOT EXISTS. FROM DUAL is required: a FROM <table> would emit
+-- one row per source row and duplicate the article (this happened in prod).
+-- imageKey must exist in MinIO; run scripts/seed_sih_news.ts to upload it.
 -- Full editorial stored as plain-text caption; generic News card renders whitespace-pre-wrap (no custom layout needed).
 INSERT INTO `event_news` (`eventId`, `title`, `caption`, `imageKey`, `pinned`, `createdAt`, `updatedAt`)
 SELECT 3,
@@ -9,6 +11,6 @@ SELECT 3,
        true,
        NOW(3),
        NOW(3)
-FROM `hackathon_events`
+FROM DUAL
 WHERE EXISTS (SELECT 1 FROM `hackathon_events` WHERE `id` = 3)
   AND NOT EXISTS (SELECT 1 FROM `event_news` WHERE `eventId` = 3 AND `title` LIKE '%SIH 2026%');
