@@ -990,6 +990,9 @@ model Opportunity {
   verificationStatus   String    @default("UNVERIFIED")
   lastVerifiedAt       DateTime?
   pageHash             String?
+  // Column created by 20260925235232_hub_show_in_hub (that migration predates
+  // this schema line — do NOT re-add it in a new migration, the DB is in sync).
+  showInHub            Boolean   @default(false)
   createdById          Int
   createdBy            User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   createdAt            DateTime  @default(now())
@@ -1004,6 +1007,7 @@ model Opportunity {
   @@index([city])
   @@index([verificationStatus])
   @@index([startDate])
+  @@index([showInHub])
   @@map("opportunities")
 }
 
