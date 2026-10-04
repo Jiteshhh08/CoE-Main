@@ -23,7 +23,7 @@ function summarizeHttpError(label: string, status: number, body: string): string
     if (/time-?out/i.test(text) || /error 524/i.test(text)) {
       return `${label} ${status}: AI gateway timed out (model overloaded) — retry later`;
     }
-    const title = text.match(/<title>(.*?)<\/title>/is)?.[1]?.trim();
+    const title = text.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
     return `${label} ${status}: unexpected HTML response${
       title ? ` (${title.slice(0, 100)})` : ""
     }`;

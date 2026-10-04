@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Tab = "overview" | "venues" | "judges" | "notices" | "scores" | "feedback" | "media";
+type Tab = "overview" | "venues" | "judges" | "notices" | "news" | "scores" | "feedback" | "media";
 
 type Api<T> = { success: boolean; message: string; data: T };
 
@@ -24,6 +24,7 @@ export default function CoordinatorPanel({ eventId, eventTitle, isAdmin }: { eve
     { key: "venues", label: "Venues" },
     { key: "judges", label: "Judges" },
     { key: "notices", label: "Notices" },
+    { key: "news", label: "News" },
     { key: "scores", label: "Scores" },
     { key: "feedback", label: "Feedback" },
     { key: "media", label: "Media" },
@@ -58,6 +59,7 @@ export default function CoordinatorPanel({ eventId, eventTitle, isAdmin }: { eve
         {tab === "venues" ? <VenuesTab eventId={eventId} notify={notify} /> : null}
         {tab === "judges" ? <JudgesTab eventId={eventId} notify={notify} /> : null}
         {tab === "notices" ? <NoticesTab eventId={eventId} notify={notify} /> : null}
+        {tab === "news" ? <NewsTab eventId={eventId} notify={notify} /> : null}
         {tab === "scores" ? <ScoresTab eventId={eventId} notify={notify} isAdmin={isAdmin} /> : null}
         {tab === "feedback" ? <FeedbackTab eventId={eventId} /> : null}
         {tab === "media" ? <MediaTab eventId={eventId} notify={notify} /> : null}
@@ -926,6 +928,122 @@ function NoticesTab({ eventId, notify }: { eventId: number; notify: (m: string) 
                   </div>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.body}</p>
+                <p className="mt-1 text-[11px] text-[#747782]">{new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── News — mirrors NoticesTab exactly (admin/events/[id] -> News) ── */
+type NewsRow = { id: number; title: string; caption: string; imageKey: string; pinned: boolean; createdAt: string };
+
+function NewsTab({ eventId, notify }: { eventId: number; notify: (m: string) => void }) {
+  const [rows, setRows] = useState<NewsRow[]>([]);
+  const [title, setTitle] = useState("");
+  const [caption, setCaption] = useState("");
+  const [pinned, setPinned] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    void fetch(`/api/innovation/events/${eventId}/ops/news`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((b: Api<{ news: NewsRow[] }>) => {
+        if (b.success) setRows(b.data.news);
+      });
+  }, [eventId]);
+  useEffect(load, [load]);
+
+  const create = async () => {
+    if (!title.trim() || !caption.trim() || !file) {
+      notify("Title, description and image are required");
+      return;
+    }
+    setBusy(true);
+    const fd = new FormData();
+    fd.append("title", title.trim());
+    fd.append("caption", caption.trim());
+    fd.append("pinned", pinned ? "true" : "false");
+    fd.append("file", file);
+    const res = await fetch(`/api/innovation/events/${eventId}/ops/news`, {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    const b = (await res.json()) as Api<unknown>;
+    notify(b.message);
+    setBusy(false);
+    if (b.success) {
+      setTitle("");
+      setCaption("");
+      setPinned(false);
+      setFile(null);
+      load();
+    }
+  };
+
+  const togglePin = async (n: NewsRow) => {
+    const res = await fetch(`/api/innovation/events/${eventId}/ops/news/${n.id}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pinned: !n.pinned }),
+    });
+    const b = (await res.json()) as Api<unknown>;
+    if (b.success) load();
+  };
+
+  const remove = async (n: NewsRow) => {
+    const res = await fetch(`/api/innovation/events/${eventId}/ops/news/${n.id}`, { method: "DELETE", credentials: "include" });
+    const b = (await res.json()) as Api<unknown>;
+    notify(b.message);
+    if (b.success) load();
+  };
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="border border-[#c4c6d3] bg-white p-5">
+        <h3 className="font-headline text-xl text-[#002155]">Publish News</h3>
+        <input className={inputCls} placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <textarea className={inputCls + " min-h-28"} placeholder="Description — shown to all students on the event page" value={caption} onChange={(e) => setCaption(e.target.value)} />
+        <input type="file" accept="image/png,image/jpeg,image/webp" className="mt-3 block w-full text-sm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <p className="mt-1 text-[11px] text-[#747782]">PNG, JPEG or WebP, max 10 MB</p>
+        <label className="mt-2 flex items-center gap-2 text-sm text-[#434651]">
+          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
+          Pin to top
+        </label>
+        <button type="button" onClick={() => void create()} className={btnCls + " mt-3"} disabled={busy}>
+          {busy ? "Uploading…" : "Publish"}
+        </button>
+      </div>
+      <div className="border border-[#c4c6d3] bg-white p-5">
+        <h3 className="font-headline text-xl text-[#002155]">Live News ({rows.length})</h3>
+        {rows.length === 0 ? (
+          <p className="mt-3 text-sm text-[#747782]">Nothing published yet.</p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {rows.map((n) => (
+              <div key={n.id} className="border border-[#e3e2df] bg-[#faf9f5] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-[#002155]">
+                    {n.pinned ? "📌 " : ""}
+                    {n.title}
+                  </p>
+                  <div className="flex shrink-0 gap-3 text-xs">
+                    <button type="button" onClick={() => void togglePin(n)} className="font-bold uppercase tracking-wider text-[#8c4f00] hover:underline">
+                      {n.pinned ? "Unpin" : "Pin"}
+                    </button>
+                    <button type="button" onClick={() => void remove(n)} className="font-bold uppercase tracking-wider text-red-600 hover:underline">
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-[#434651]">{n.caption}</p>
+                <p className="mt-2 text-xs text-[#747782]">{n.imageKey.split("/").pop()}</p>
                 <p className="mt-1 text-[11px] text-[#747782]">{new Date(n.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
               </div>
             ))}
