@@ -24,8 +24,10 @@ The CoE needs to communicate with students and faculty about:
 | `src/app/api/grants/route.ts` | List and create grants |
 | `src/app/api/grants/[id]/route.ts` | Update and delete grants |
 | `src/app/api/cron/grants-collector/route.ts` | Cron endpoint for monthly grant collection |
-| `src/lib/grants/automation.ts` | Collection pipeline (scrape → AI structure → validate → dedup → store) |
-| `src/lib/grants/scraper.ts` | Live scraper for official source pages (no new deps, fetch + regex) |
+| `src/app/api/admin/grants/collect/route.ts` | Admin-only manual trigger (same pipeline, session auth) |
+| `src/components/GrantPipelineButton.tsx` | Admin "Run Pipeline" button on homepage grants section |
+| `src/lib/grants/automation.ts` | Collection pipeline (Tavily live search → AI structure → validate → dedup → store) |
+| `src/lib/grants/tavily.ts` | Tavily live-search client (open-internet queries, basic depth) |
 | `src/lib/grants/sources.ts` | Trusted grant source configuration |
 | `src/app/api/announcements/route.ts` | List and create announcements |
 | `src/app/api/announcements/[id]/route.ts` | Delete announcement |
@@ -235,11 +237,11 @@ Grants are automatically collected monthly via an AI-powered pipeline.
 
 ### How It Works
 
-1. **GitHub Actions** triggers on the 1st of every month at 08:00 AM IST
+1. **GitHub Actions** triggers on the 1st of every month at 08:00 AM IST (retry on the 5th)
 2. Calls `GET /api/cron/grants-collector` with `x-cron-secret` header
-3. **Scraper** (`src/lib/grants/scraper.ts`) fetches live official pages (DST call-for-proposals, DST announcements, DST fellowships, AICTE scheme pages), extracts opportunity links + dates, filters nav/job/stale noise
-4. The endpoint sends scraped candidates to the college AI Gateway (Qwen3.6) with a structuring prompt — Qwen selects and normalizes, it does not browse
-5. Each grant is validated (schema, deadlines required, URL must belong to a trusted domain)
+3. **Tavily** (`src/lib/grants/tavily.ts`) runs 3 open-internet searches (basic depth, 1 credit each) for current Indian grant opportunities — this is the live-data layer, replacing the retired hand-rolled scraper
+4. The endpoint sends Tavily results to the college AI Gateway (Qwen3.6) with a structuring prompt — Qwen selects and normalizes, it does not browse
+5. Each grant is validated (schema, deadlines required, URL must belong to a trusted domain — aggregators and unknown domains are rejected here)
 6. Duplicates are detected (title + issuingBody + month, plus referenceLink)
 7. Valid grants are saved to the `grants` table with `source: "AUTO"`
 8. `isTentative` is set from the AI-reported `deadlineTentative` flag (anything but explicit `false` counts as tentative); tentative deadlines render with `*` on the homepage plus a legend
@@ -252,9 +254,9 @@ Fallback or rolling-horizon dates must never look verified:
 - `isTentative: true` renders `*` next to the deadline on the homepage
 - A legend below the table reads: "* Tentative deadline — confirm on the official page."
 
-### Scraper politeness
+### Live-data layer (Tavily)
 
-`src/lib/grants/scraper.ts` fetches sequentially with a 1.5s gap between pages, 15s timeout and 1.5MB cap per page, and an identifying User-Agent. Neither `dst.gov.in` nor `aicte-india.org` publishes a `robots.txt` (both 404 as of Sept 2026), so no bot-exclusion rules are being violated.
+`src/lib/grants/tavily.ts` runs 3 open-internet searches per collection at basic depth (1 credit each — ~3 credits/run, ~6 worst case with the 5th-day retry; free tier is 1,000/month). Search is deliberately NOT domain-restricted; the trusted-domain URL check in validation is what keeps aggregators out of published grants. Using a search API does not remove reproduction obligations — the MeitY/DHE/AICTE permission emails still apply to what we publish. Neither `dst.gov.in` nor `aicte-india.org` publishes a `robots.txt` (both 404 as of Sept 2026).
 
 ### Retry schedule
 
@@ -262,19 +264,23 @@ The workflow runs on the 1st (primary) and the 5th (retry) of every month at 08:
 
 ### Endpoint rate limits
 
-In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes): collection max once per 10 minutes — returns HTTP 429 when exceeded. This bounds AI/scrape cost on repeated triggers after failed runs (idempotency only skips successful months).
+In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes): collection max once per 10 minutes — returns HTTP 429 when exceeded. Missing setup fails loudly instead: if `QWEN_API_KEY` or `TAVILY_API_KEY` is absent, the endpoint returns HTTP 503 with `NOT_CONFIGURED` errors and creates no run row — distinguishable from a transient `FAILED` run.
 
 ### Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `QWEN_API_KEY` | College AI Gateway API key |
+| `AI_GATEWAY_URL` | AI gateway endpoint (default: college gateway) |
+| `AI_GATEWAY_MODEL` | AI model name (default: qwen3.6) |
+| `TAVILY_API_URL` | Tavily search endpoint (default: api.tavily.com/search) |
+| `TAVILY_API_KEY` | Tavily API key |
 | `CRON_SECRET` | Auth token for cron endpoints |
 
 ### Trusted Sources
 
 Configured in `src/lib/grants/sources.ts`. Currently includes:
-DST, DBT, UGC, AICTE, ICMR, MeitY, NITI Aayog, DRDO, ISRO, DHE.
+DST (+ onlinedst.gov.in portal), DBT, UGC, AICTE, ICMR, MeitY, NITI Aayog, DRDO, ISRO, DHE, ANRF (+ serb.gov.in, serbonline.in, prism.serbonline.in).
 
 ### Cron Endpoint
 
@@ -293,7 +299,9 @@ Response:
     "grantsFound": 12,
     "grantsPublished": 10,
     "duplicatesSkipped": 2,
-    "errors": []
+    "errors": [],
+    "liveResults": 24,
+    "liveQueries": 3
   }
 }
 ```

@@ -1,15 +1,62 @@
 import prisma from "@/lib/prisma";
 import { TRUSTED_SOURCES } from "./sources";
-import { scrapeGrantSources, type ScrapedCandidate } from "./scraper";
+import { fetchLiveGrantContext, type LiveCandidate } from "./tavily";
 
-const QWEN_API_URL = "https://ai.tcetcercd.in/v1/chat/completions";
+// Env-driven so a gateway move or model swap needs no redeploy.
+const AI_GATEWAY_URL =
+  process.env.AI_GATEWAY_URL || "https://ai.tcetcercd.in/v1/chat/completions";
+const AI_GATEWAY_MODEL = process.env.AI_GATEWAY_MODEL || "qwen3.6";
 
 function normalizeHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, "");
 }
 
-const TRUSTED_DOMAINS = TRUSTED_SOURCES.map((s) => {
-  try { return normalizeHostname(new URL(s.url).hostname); } catch { return s.url; }
+// Upstream services return full HTML error pages on failure — storing those
+// blobs in automation_runs.errors buries the signal, so collapse them here
+// into one actionable line instead.
+function summarizeHttpError(label: string, status: number, body: string): string {
+  const text = (body || "").trim();
+  if (text.startsWith("<")) {
+    if (/tunnel/i.test(text) || /error 1033/i.test(text)) {
+      return `${label} ${status}: AI gateway unreachable (Cloudflare tunnel down) — retry later or contact the CoE coordinator`;
+    }
+    if (/time-?out/i.test(text) || /error 524/i.test(text)) {
+      return `${label} ${status}: AI gateway timed out (model overloaded) — retry later`;
+    }
+    const title = text.match(/<title>(.*?)<\/title>/is)?.[1]?.trim();
+    return `${label} ${status}: unexpected HTML response${
+      title ? ` (${title.slice(0, 100)})` : ""
+    }`;
+  }
+  return `${label} ${status}: ${text.slice(0, 300)}`;
+}
+
+// Read a fetch Response as text first: a 200 with an HTML body (proxy error
+// page) must not reach JSON.parse, whose SyntaxError ("Unexpected token
+// '<'...") hides the real cause.
+async function readJsonBody(
+  res: Response,
+  label: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
+  const raw = await res.text();
+  if (!res.ok) throw new Error(summarizeHttpError(label, res.status, raw));
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(summarizeHttpError(label, res.status, raw));
+  }
+}
+
+const TRUSTED_DOMAINS = TRUSTED_SOURCES.flatMap((s) => {
+  const hosts: string[] = [];
+  try {
+    hosts.push(normalizeHostname(new URL(s.url).hostname));
+  } catch {
+    hosts.push(s.url);
+  }
+  for (const a of s.aliases ?? []) hosts.push(normalizeHostname(a));
+  return hosts;
 });
 
 function isTrustedUrl(url: string | null): boolean {
@@ -43,8 +90,8 @@ type AutomationResult = {
   grantsPublished: number;
   duplicatesSkipped: number;
   errors: string[];
-  scrapedCount: number;
-  scrapedPages: number;
+  liveResults: number;
+  liveQueries: number;
 };
 
 function getCurrentMonth(): string {
@@ -54,50 +101,45 @@ function getCurrentMonth(): string {
   return `${y}-${m}`;
 }
 
-function buildPrompt(currentMonth: string, scraped: ScrapedCandidate[]): string {
+function buildPrompt(currentMonth: string, live: LiveCandidate[]): string {
   const sourceList = TRUSTED_SOURCES.map(
     (s) => `- ${s.name} (${s.abbreviation}) — ${s.url}`
   ).join("\n");
 
-  const scrapedBlock =
-    scraped.length > 0
-      ? scraped
+  const liveBlock =
+    live.length > 0
+      ? live
           .map(
             (c, i) =>
-              `[${i + 1}] ${c.title}\nURL: ${c.url}\nSource page: ${c.sourcePageUrl}\nContext: ${c.snippet}\nDates seen: ${c.dateTexts.join(", ") || "none"}`
+              `[${i + 1}] ${c.title}\nURL: ${c.url}\nContext: ${c.snippet || "none"}`
           )
           .join("\n\n")
-      : "(no live pages could be fetched — use only opportunities you are highly confident are real)";
+      : "(live search returned nothing — use only opportunities you are highly confident are real)";
 
   return `You are a grant-data extraction assistant for an Indian Engineering & Technology Centre of Excellence.
 Today: ${new Date().toISOString().slice(0, 10)}
 Target month: ${currentMonth}
 
-Below is LIVE scraped data collected right now from official trusted-source pages. Prefer these over memory. You may also use training knowledge ONLY for well-known recurring programs, and only when highly confident.
+Below is LIVE web-search context collected right now. Prefer it over memory. You may also use training knowledge ONLY for well-known recurring programs, and only when highly confident.
 
-SCRAPED CANDIDATES:
-${scrapedBlock}
+LIVE RESULTS:
+${liveBlock}
 
-Your job is to select and structure ONLY opportunities that are:
-- REAL
-- CURRENTLY ACTIVE for the target month
-- Relevant to engineering, technology, research, students, researchers, or faculty
-- From the trusted organizations/domains provided
-- Supported by the scraped data above or by high-confidence knowledge
+Your job is to select and structure ONLY opportunities that are REAL, CURRENTLY ACTIVE for the target month, relevant to engineering, technology, research, students, researchers, or faculty, from the trusted organizations below, and supported by the live results above or by high-confidence knowledge.
 
 TRUSTED SOURCES:
 ${sourceList}
 
-IMPORTANT:
+RULES:
 1. Do NOT invent facts, deadlines, or URLs.
 2. Do NOT use old/expired opportunities.
-3. Every grant MUST have a deadline in YYYY-MM-DD format. Priority: (a) exact date from the scraped context, (b) last day of a month named in the context, (c) last day of the target month as fallback.
-4. DEADLINE HONESTY (critical — students plan submissions around these dates): if you use fallback (c), or the opportunity is rolling/year-round, you MUST end the description with exactly one of these sentences: "Deadline shown is tentative — confirm on the official page." or "Applications are accepted year-round; the shown date is a review horizon, not a cutoff — confirm on the official page."
+3. Every grant MUST have a deadline in YYYY-MM-DD format. Priority: (a) exact date from the live context, (b) last day of a month named in the context, (c) last day of the target month as fallback.
+4. DEADLINE HONESTY (critical — students plan submissions around these dates): if you use fallback (c), or the opportunity is rolling/year-round, end the description with exactly one of these sentences: "Deadline shown is tentative — confirm on the official page." or "Applications are accepted year-round; the shown date is a review horizon, not a cutoff — confirm on the official page."
 5. For EVERY grant, set deadlineTentative to true if the deadline is a fallback/rolling-horizon date, or false ONLY if you copied an exact published deadline. When in doubt, use true.
-6. referenceLink MUST be a URL from the scraped candidates above when available — copy it exactly, never modify paths. Only fall back to a trusted-source homepage when no candidate URL fits.
-5. Every URL must start with https://
-6. If the official URL is missing or uncertain, EXCLUDE the opportunity.
-7. No duplicates. Accuracy > quantity.
+6. referenceLink MUST be a URL from the live results above when available — copy it exactly, never modify paths. Only fall back to a trusted-source homepage when no result URL fits.
+7. ALLOWED DOMAINS: referenceLink's domain MUST belong to one of the trusted sources above. NEVER use facebook.com, linkedin.com, youtube.com, x.com, aggregators (wemakescholars.com, fundsforngos.org, buddy4study.com, etc.), blogs, forums, or news sites. If a live result URL is from one of these, replace it with the trusted organization's official program page — or EXCLUDE the grant if you cannot identify one.
+8. Every URL must start with https://. If the official URL is missing or uncertain, EXCLUDE the opportunity.
+9. No duplicates. Accuracy > quantity.
 
 Return up to 10-15 of the strongest opportunities. If fewer qualify, return fewer.
 
@@ -110,25 +152,37 @@ For each selected opportunity return exactly:
   "category": "GOVT_GRANT | SCHOLARSHIP | RESEARCH_FUND | INDUSTRY_GRANT",
   "description": "2 concise sentences",
   "deadline": "YYYY-MM-DD (never null)",
-  "referenceLink": "exact scraped URL or trusted homepage",
+  "referenceLink": "exact live-result URL or trusted homepage",
   "deadlineTentative": "boolean — true if fallback/rolling-horizon, false only if exact published date"
 }
 
-FINAL CHECK: Remove any record with uncertain existence, expired deadline, non-https URL, fabricated path, unsupported claims, or duplicate opportunity.
+FINAL CHECK: Remove any record with uncertain existence, expired deadline, non-https URL, non-trusted domain, fabricated path, unsupported claims, or duplicate opportunity.
 
 Return ONLY valid JSON.`;
 }
 
-function parseClaudeResponse(text: string): RawGrant[] {
+export function parseGrantJson(text: string): RawGrant[] {
   let cleaned = text.trim();
   if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
   if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
   if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
   cleaned = cleaned.trim();
 
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed)) throw new Error("Response is not an array");
-  return parsed;
+  const tryParse = (s: string): RawGrant[] => {
+    const parsed: unknown = JSON.parse(s);
+    if (!Array.isArray(parsed)) throw new Error("Response is not an array");
+    return parsed as RawGrant[];
+  };
+
+  try {
+    return tryParse(cleaned);
+  } catch {
+    // Prose-wrapped responses: extract the outermost JSON array and retry.
+    const start = cleaned.indexOf("[");
+    const end = cleaned.lastIndexOf("]");
+    if (start === -1 || end === -1 || end <= start) throw new Error("No JSON array found in response");
+    return tryParse(cleaned.slice(start, end + 1));
+  }
 }
 
 function validateGrant(raw: RawGrant, index: number): string[] {
@@ -178,8 +232,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
   let grantsFound = 0;
   let grantsPublished = 0;
   let duplicatesSkipped = 0;
-  let scrapedCount = 0;
-  let scrapedPages = 0;
+  let liveResults = 0;
+  let liveQueries = 0;
 
   // Idempotency: check if we already ran this month
   const existingRun = await prisma.automationRun.findFirst({
@@ -193,8 +247,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished: existingRun.grantsPublished,
       duplicatesSkipped: existingRun.duplicatesSkipped,
       errors: ["Already ran for this month — skipping."],
-      scrapedCount: 0,
-      scrapedPages: 0,
+      liveResults: 0,
+      liveQueries: 0,
     };
   }
 
@@ -202,45 +256,46 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
     data: { month, status: "PARTIAL" },
   });
 
+  // ponytail: the whole pipeline (Tavily search + AI call + store) runs inside
+  // one request — fine at this volume (2 runs/month). If a run ever hits route
+  // timeouts, upgrade path is enqueue-and-return-202 with a worker, matching
+  // the existing email-delivery.ts / sync-erp-attendance.ts drain pattern.
   try {
     const apiKey = process.env.QWEN_API_KEY;
-    if (!apiKey) throw new Error("QWEN_API_KEY not configured");
+    if (!apiKey) throw new Error("NOT_CONFIGURED: QWEN_API_KEY not configured");
 
-    // Step 1: scrape live official pages — Qwen structures this data,
-    // it does not browse the web itself.
-    const scraped = await scrapeGrantSources();
-    scrapedCount = scraped.candidates.length;
-    scrapedPages = scraped.pagesFetched;
-    for (const e of scraped.errors) errors.push(`Scraper: ${e}`);
+    // Step 1: live web context via Tavily (open-internet search) — Qwen
+    // structures this data, it does not browse the web itself.
+    const live = await fetchLiveGrantContext(month);
+    liveResults = live.candidates.length;
+    liveQueries = live.queriesRun;
+    for (const e of live.errors) errors.push(`Tavily: ${e}`);
     console.log(
-      `[grants-collector] scraped ${scraped.candidates.length} candidates from ${scraped.pagesFetched} pages`
+      `[grants-collector] live context: ${live.candidates.length} results from ${live.queriesRun} queries`
     );
 
-    const prompt = buildPrompt(month, scraped.candidates);
+    const prompt = buildPrompt(month, live.candidates.slice(0, 15));
 
-    const response = await fetch(QWEN_API_URL, {
+    const response = await fetch(AI_GATEWAY_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "qwen3.6",
+        model: AI_GATEWAY_MODEL,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 4096,
+        // 10-15 small JSON objects fit comfortably — smaller cap means
+        // faster generation, which matters against the gateway's timeout.
+        max_tokens: 2048,
       }),
     });
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Qwen API error ${response.status}: ${body}`);
-    }
-
-    const data = await response.json();
+    const data = await readJsonBody(response, "Qwen API error");
     const text = data.choices?.[0]?.message?.content;
     if (!text) throw new Error("Empty response from Qwen API");
 
-    const rawGrants = parseClaudeResponse(text);
+    const rawGrants = parseGrantJson(text);
     grantsFound = rawGrants.length;
 
     // Validate
@@ -322,8 +377,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
-      scrapedCount,
-      scrapedPages,
+      liveResults,
+      liveQueries,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -348,8 +403,8 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
       grantsPublished,
       duplicatesSkipped,
       errors,
-      scrapedCount,
-      scrapedPages,
+      liveResults,
+      liveQueries,
     };
   }
 }

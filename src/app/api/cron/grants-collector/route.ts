@@ -32,6 +32,21 @@ export async function GET(req: NextRequest) {
     if (Date.now() - lastFullRunAt < 10 * 60_000) {
       return errorRes("Too many requests", ["A collection run started less than 10 minutes ago."], 429);
     }
+
+    // Fail loudly on missing setup: a 503 + NOT_CONFIGURED is distinguishable
+    // from a transient AI failure (FAILED) in automation_runs. No run row is
+    // created and the rate-limit slot is not consumed, so an unconfigured
+    // endpoint always answers 503 (never a misleading 429).
+    const missing = ["QWEN_API_KEY", "TAVILY_API_KEY"].filter(
+      (k) => !process.env[k]?.trim()
+    );
+    if (missing.length > 0) {
+      return errorRes(
+        "Grants collector not configured",
+        missing.map((k) => `NOT_CONFIGURED: ${k} is missing — set it in .env and GitHub Actions secrets`),
+        503
+      );
+    }
     lastFullRunAt = Date.now();
 
     const result = await collectMonthlyGrants();

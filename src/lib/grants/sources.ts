@@ -2,6 +2,9 @@ export type GrantSource = {
   name: string;
   abbreviation: string;
   url: string;
+  // Additional official hostnames for the same organization
+  // (portals, application systems). Verified, not guessed.
+  aliases?: string[];
   category: "GOVT_GRANT" | "SCHOLARSHIP" | "RESEARCH_FUND" | "INDUSTRY_GRANT";
 };
 
@@ -10,6 +13,7 @@ export const TRUSTED_SOURCES: GrantSource[] = [
     name: "Department of Science and Technology",
     abbreviation: "DST",
     url: "https://www.dst.gov.in",
+    aliases: ["onlinedst.gov.in"],
     category: "RESEARCH_FUND",
   },
   {
@@ -66,6 +70,11 @@ export const TRUSTED_SOURCES: GrantSource[] = [
     url: "https://www.education.gov.in",
     category: "SCHOLARSHIP",
   },
+  {
+    name: "Anusandhan National Research Foundation",
+    abbreviation: "ANRF",
+    url: "https://www.anrfonline.in",
+    aliases: ["serb.gov.in", "serbonline.in", "prism.serbonline.in"],
+    category: "RESEARCH_FUND",
+  },
 ];
-
-export const GRANT_SOURCE_ABBREVIATIONS = TRUSTED_SOURCES.map((s) => s.abbreviation);

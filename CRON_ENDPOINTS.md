@@ -320,11 +320,12 @@ All calls should send:
 ## E) GET /api/cron/grants-collector
 
 Purpose:
-- Scrapes live official pages (DST, AICTE), then asks the college AI Gateway (Qwen3.6) to structure candidates into grants
+- Fetches live grant opportunities via Tavily open-internet search, then asks the college AI Gateway (Qwen3.6) to structure them into grants
 - Validates, deduplicates, and stores grants in the `grants` table
 - Logs run in `automation_runs` table
 - Idempotent — safe to call multiple times per month (repeat calls in a successful month return the stored result)
 - Rate-limited — max one collection run per 10 minutes (HTTP 429 beyond that)
+- Missing setup fails loudly — absent `QWEN_API_KEY`/`TAVILY_API_KEY` returns HTTP 503 with `NOT_CONFIGURED` and creates no run row
 
 Query parameters:
 
@@ -347,8 +348,8 @@ Response (success):
     "grantsPublished": 10,
     "duplicatesSkipped": 2,
     "errors": [],
-    "scrapedCount": 21,
-    "scrapedPages": 6
+    "liveResults": 24,
+    "liveQueries": 3
   }
 }
 ```
