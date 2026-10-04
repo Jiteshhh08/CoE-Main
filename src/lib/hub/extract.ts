@@ -242,7 +242,11 @@ export function mandatoryMissing(e: ExtractedEvent): string[] {
 
 async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedEvent> {
   const apiKey = process.env.QWEN_API_KEY?.trim();
-  if (!apiKey) return current;
+  // Loud skip: without the key, extraction silently degrades to rules-only.
+  if (!apiKey) {
+    console.warn('[hub] QWEN_API_KEY not set — AI fill-in skipped, rules-only extraction');
+    return current;
+  }
   const missing = mandatoryMissing(current);
   if (missing.length === 0) return current;
   const snippet = normalizeContent(html).slice(0, 6000);
