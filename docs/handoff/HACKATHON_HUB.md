@@ -148,8 +148,10 @@ All in `src/lib/hub/`, triggered by `/api/cron/hub?job=` (see §9).
 ### 4.1 Discovery (`discovery.ts`)
 
 1. **Sitemap-first** (`discoverFromSitemap`): one fetch of `indiahackathons.com/sitemap.xml` yields every `/events/` URL (complete coverage, no HTML parsing).
-2. **Page crawl** for enabled `PAGE` sources: polite fetch (15s timeout, 1.5s gap, `TCET-CoE-HubBot/1.0` user-agent), extract links whose titles match hackathon keywords, skip nav noise, listing-page titles ("Explore hackathons"), self-links, and form paths (`/submit`, `/login`…).
+2. **Page crawl** for enabled `PAGE` sources: polite fetch (15s timeout, 1.5s gap, `TCET-CoE-HubBot/1.0` user-agent), extract links whose titles match hackathon keywords, skip nav noise, listing-page titles ("Explore hackathons", count-style and platform-index titles), self-links, and form paths (`/submit`, `/login`…).
 3. **Dedupe** by exact URL; each new candidate stores the source page's SHA-256 as its baseline `pageHash`; per-source errors recorded on the source row, never aborting other sources.
+
+Deliberately not wired: a search-API discovery leg (evaluated and removed pre-merge — launch doesn't need the breadth, and review bandwidth is the real constraint; revisit if aggregator coverage proves thin).
 
 ### 4.1a Search query strategy (§10) and geo tiers (§11)
 

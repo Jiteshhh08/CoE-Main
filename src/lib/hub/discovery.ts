@@ -13,7 +13,14 @@ const HACKATHON_KEYWORDS =
 const NOISE =
   /job|recruitment|vacancy|admission|result|merit list|tender|auction/i;
 // Listing/nav pages, not events (e.g. "Explore hackathons", "Organize a hackathon").
-export const LISTING_TITLES =
+const LISTING_PATTERNS = [
+  /^(explore|organize|organise|all|upcoming|past|open|find|browse|discover|host)\b[\w\s|–—-]*hackathons?\b[\w\s|–—-]*$/i,
+  /^\d[\d,+]*(?:\+)?\s+hackathons?\b/i, // "2540+ Hackathons in India…"
+  /hackathons?\s*[|–—-]\s*(devfolio|unstop|hackerearth|hack2skill|devpost|mlh)\b/i, // platform index pages
+];
+export const LISTING_TITLES = {
+  test: (title: string): boolean => LISTING_PATTERNS.some((re) => re.test(title)),
+};
   /^(explore|organize|organise|all|upcoming|past|open|find|browse|discover|host)\b[\w\s|–-]*hackathons?\b[\w\s|–-]*$/i;
 
 export function sha256(text: string): string {
