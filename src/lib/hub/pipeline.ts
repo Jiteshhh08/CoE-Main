@@ -3,12 +3,29 @@ import { normalizeName, getRegistrationStatus, getEventStatus, clipDbString, fit
 import type { ExtractedEvent } from './extract';
 import { mandatoryMissing } from './extract';
 
+// Candidate lifecycle states (§18). String union (not a DB enum) so no
+// migration is needed; importing this instead of string literals keeps
+// typos ('VERIFYED') a compile error rather than an invisible state.
+export const HUB_CANDIDATE_STATUSES = [
+  'DISCOVERED',
+  'PROCESSING',
+  'EXTRACTED',
+  'NEEDS_REVIEW',
+  'VERIFIED',
+  'PUBLISHED',
+  'REJECTED',
+  'NEEDS_UPDATE',
+] as const;
+export type HubCandidateStatus = (typeof HUB_CANDIDATE_STATUSES)[number];
+export const isHubCandidateStatus = (value: unknown): value is HubCandidateStatus =>
+  typeof value === 'string' && (HUB_CANDIDATE_STATUSES as readonly string[]).includes(value);
+
 // Promotion: VERIFIED candidate → Opportunity (§18 VERIFIED→PUBLISHED).
 // R12: never auto-publish incomplete rows; publish is an explicit admin act.
 export async function publishCandidate(candidateId: number, actorId: number) {
-  const candidate = await (prisma as any).hubCandidate.findUnique({ where: { id: candidateId } });
+  const candidate = await prisma.hubCandidate.findUnique({ where: { id: candidateId } });
   if (!candidate) throw new Error('Candidate not found');
-  if (!['VERIFIED', 'NEEDS_REVIEW', 'NEEDS_UPDATE'].includes(candidate.status)) {
+  if (!(['VERIFIED', 'NEEDS_REVIEW', 'NEEDS_UPDATE'] as const).some((s) => s === candidate.status)) {
     throw new Error(`Cannot publish from status ${candidate.status}`);
   }
   const e = (candidate.extracted ?? {}) as Partial<ExtractedEvent>;
@@ -26,11 +43,11 @@ export async function publishCandidate(candidateId: number, actorId: number) {
   let existing: { id: number } | null = null;
   if (e.registrationUrl) {
     existing =
-      (await (prisma as any).opportunity.findFirst({ where: { sourceUrl: e.registrationUrl } })) ??
-      (await (prisma as any).opportunity.findFirst({ where: { applicationUrl: e.registrationUrl } }));
+      (await prisma.opportunity.findFirst({ where: { sourceUrl: e.registrationUrl } })) ??
+      (await prisma.opportunity.findFirst({ where: { applicationUrl: e.registrationUrl } }));
   }
   if (!existing && e.organiser && e.eventName) {
-    const rivals = await (prisma as any).opportunity.findMany({
+    const rivals = await prisma.opportunity.findMany({
       where: { organizer: e.organiser },
       select: { id: true, title: true },
       take: 50,
@@ -65,21 +82,21 @@ export async function publishCandidate(candidateId: number, actorId: number) {
 
   let opportunityId: number;
   if (existing) {
-    const updated = await (prisma as any).opportunity.update({
+    const updated = await prisma.opportunity.update({
       where: { id: existing.id },
       data: { ...record, status: 'APPROVED', showInHub: true },
     });
     opportunityId = updated.id;
   } else {
-    const created = await (prisma as any).opportunity.create({
+    const created = await prisma.opportunity.create({
       data: { ...record, status: 'APPROVED', showInHub: true, createdById: actorId },
     });
     opportunityId = created.id;
   }
 
-  await (prisma as any).hubCandidate.update({
+  await prisma.hubCandidate.update({
     where: { id: candidateId },
-    data: { status: 'PUBLISHED', opportunityId, error: null },
+    data: { status: 'PUBLISHED' satisfies HubCandidateStatus, opportunityId, error: null },
   });
   return { opportunityId, merged: Boolean(existing) };
 }
@@ -106,11 +123,11 @@ export function diffImportant(
 // Admin dashboard rollup (§39).
 export async function hubStats() {
   const [opportunities, candidates] = await Promise.all([
-    (prisma as any).opportunity.findMany({
+    prisma.opportunity.findMany({
       select: { id: true, registrationDeadline: true, startDate: true, endDate: true, createdAt: true, status: true },
       take: 1000,
     }),
-    (prisma as any).hubCandidate.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.hubCandidate.groupBy({ by: ['status'], _count: { _all: true } }),
   ]);
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);

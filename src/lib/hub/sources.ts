@@ -33,7 +33,7 @@ export const HUB_SOURCE_SEEDS: HubSourceSeed[] = [
 // They become code again only when a search-provider key is configured.
 export async function ensureHubSources() {
   for (const seed of HUB_SOURCE_SEEDS) {
-    await (prisma as any).hubSource.upsert({
+    await prisma.hubSource.upsert({
       where: { key: seed.key },
       update: { label: seed.label, method: seed.method, frequency: seed.frequency, priority: seed.priority },
       create: { key: seed.key, label: seed.label, method: seed.method, frequency: seed.frequency, priority: seed.priority, enabled: true },

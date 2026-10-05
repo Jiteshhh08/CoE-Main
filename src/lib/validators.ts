@@ -666,6 +666,29 @@ const hubShortText = (label: string, min = 0) => {
   return schema.max(191, `${label} must be at most 191 characters`).optional().or(z.literal(''));
 };
 
+// URL allowlist: http(s) only — javascript:/data: schemes must never reach
+// the student-facing "Register now" link (rendered as a real <a href>).
+const hubUrlSchema = z
+  .string()
+  .trim()
+  .refine((u) => u === '' || /^https?:\/\//i.test(u), 'Must be an http(s) URL')
+  .refine((u) => u.length <= 191, 'URL must be at most 191 characters')
+  .optional()
+  .or(z.literal(''));
+
+const hubRangeCheck = (data: { startDate?: string; endDate?: string; teamMin?: number; teamMax?: number }) => {
+  const issues: string[] = [];
+  if (data.startDate && data.endDate) {
+    const s = Date.parse(data.startDate);
+    const e = Date.parse(data.endDate);
+    if (!Number.isNaN(s) && !Number.isNaN(e) && s > e) issues.push('startDate must be on or before endDate');
+  }
+  if (data.teamMin != null && data.teamMax != null && data.teamMin > data.teamMax) {
+    issues.push('teamMin must be less than or equal to teamMax');
+  }
+  return issues;
+};
+
 export const opportunityCreateSchema = z.object({
   title: z.string().trim().min(2, 'Title must be at least 2 characters').max(191, 'Title must be at most 191 characters'),
   category: z.string().trim().min(2, 'Category must be at least 2 characters').max(191, 'Category must be at most 191 characters'),
@@ -673,7 +696,7 @@ export const opportunityCreateSchema = z.object({
   description: z.string().trim().optional().or(z.literal('')),
   eligibility: hubShortText('Eligibility'),
   prize: hubShortText('Prize'),
-  applicationUrl: hubShortText('Application URL'),
+  applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
     .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
@@ -690,9 +713,13 @@ export const opportunityCreateSchema = z.object({
   endDate: hubDateSchema,
   teamMin: z.coerce.number().int().min(1).max(20).optional(),
   teamMax: z.coerce.number().int().min(1).max(20).optional(),
-  sourceUrl: z.string().trim().optional().or(z.literal('')),
+  sourceUrl: hubUrlSchema,
   sourceType: hubSourceSchema,
   verificationStatus: hubVerificationSchema,
+}).superRefine((data, ctx) => {
+  for (const issue of hubRangeCheck(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }
 });
 
 export const opportunityUpdateSchema = z.object({
@@ -702,7 +729,7 @@ export const opportunityUpdateSchema = z.object({
   description: z.string().trim().optional().or(z.literal('')),
   eligibility: hubShortText('Eligibility'),
   prize: hubShortText('Prize'),
-  applicationUrl: hubShortText('Application URL'),
+  applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
     .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
@@ -721,9 +748,13 @@ export const opportunityUpdateSchema = z.object({
   endDate: hubDateSchema,
   teamMin: z.coerce.number().int().min(1).max(20).optional(),
   teamMax: z.coerce.number().int().min(1).max(20).optional(),
-  sourceUrl: z.string().trim().optional().or(z.literal('')),
+  sourceUrl: hubUrlSchema,
   sourceType: hubSourceSchema,
   verificationStatus: hubVerificationSchema,
+}).superRefine((data, ctx) => {
+  for (const issue of hubRangeCheck(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }
 });
 
 export const opportunityStatusSchema = z.object({

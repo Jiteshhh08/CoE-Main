@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers';
-import { publishCandidate } from '@/lib/hub/pipeline';
+import { publishCandidate, type HubCandidateStatus } from '@/lib/hub/pipeline';
 
 const parseId = (raw: string): number => {
   const id = Number(raw);
@@ -29,13 +29,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return successRes(result, result.merged ? 'Candidate published (merged with existing event).' : 'Candidate published.');
     }
 
-    const existing = await (prisma as any).hubCandidate.findUnique({ where: { id: candidateId } });
+    const existing = await prisma.hubCandidate.findUnique({ where: { id: candidateId } });
     if (!existing) return errorRes('Candidate not found', [], 404);
-    const updated = await (prisma as any).hubCandidate.update({
+    const nextStatus: HubCandidateStatus = action === 'verify' ? 'VERIFIED' : 'REJECTED';
+    const updated = await prisma.hubCandidate.update({
       where: { id: candidateId },
-      data: action === 'verify'
-        ? { status: 'VERIFIED', error: null }
-        : { status: 'REJECTED', error: 'Rejected by admin' },
+      data: { status: nextStatus, error: action === 'verify' ? null : 'Rejected by admin' },
     });
     return successRes(updated, `Candidate ${action === 'verify' ? 'verified' : 'rejected'}.`);
   } catch (err) {

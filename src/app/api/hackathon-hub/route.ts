@@ -41,20 +41,50 @@ export async function GET(req: NextRequest) {
         ? [{ registrationDeadline: 'asc' }, { createdAt: 'desc' }]
         : [{ createdAt: 'desc' }];
 
-    const rows = await prisma.opportunity.findMany({ where, orderBy, take: 200 });
+    // Explicit select: internal fields (createdById = staff user ids,
+    // pageHash = crawler state) must never leave this public endpoint.
+    // verificationStatus + sourceUrl + lastVerifiedAt stay: they are the
+    // spec §35 trust display (badge + source link), and sourceUrl can only
+    // ever be an https URL (validator + fitUrl guards).
+    const rows = await prisma.opportunity.findMany({
+      where,
+      orderBy,
+      take: 200,
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        organizer: true,
+        description: true,
+        registrationDeadline: true,
+        eligibility: true,
+        prize: true,
+        themes: true,
+        technologies: true,
+        applicationUrl: true,
+        facultyRecommended: true,
+        status: true,
+        mode: true,
+        venue: true,
+        city: true,
+        state: true,
+        startDate: true,
+        endDate: true,
+        teamMin: true,
+        teamMax: true,
+        sourceUrl: true,
+        sourceType: true,
+        verificationStatus: true,
+        lastVerifiedAt: true,
+        createdAt: true,
+      },
+    });
 
     const now = new Date();
     let enriched = rows.map((opp) => ({
       ...opp,
-      regStatus: getRegistrationStatus(
-        opp.registrationDeadline ?? (opp as { startDate?: Date | null }).startDate ?? null,
-        now,
-      ),
-      eventStatus: getEventStatus(
-        (opp as { startDate?: Date | null }).startDate ?? null,
-        (opp as { endDate?: Date | null }).endDate ?? null,
-        now,
-      ),
+      regStatus: getRegistrationStatus(opp.registrationDeadline ?? opp.startDate ?? null, now),
+      eventStatus: getEventStatus(opp.startDate ?? null, opp.endDate ?? null, now),
     }));
 
     if (domain) {
@@ -68,8 +98,7 @@ export async function GET(req: NextRequest) {
 
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       enriched = enriched.filter((opp) => {
-        const anchor =
-          (opp as { startDate?: Date | null }).startDate ?? opp.registrationDeadline ?? opp.createdAt;
+        const anchor = opp.startDate ?? opp.registrationDeadline ?? opp.createdAt;
         const d = anchor ? new Date(anchor) : null;
         if (!d || Number.isNaN(d.getTime())) return false;
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === month;
@@ -96,20 +125,16 @@ export async function GET(req: NextRequest) {
       // No-guess rule lives in the DB (NULL stays NULL). For display only,
       // fall back to the start date so cards don't read UNKNOWN — flagged
       // via regStatusSource so the UI can mark it unconfirmed.
-      const startDate = (opp as { startDate?: Date | null }).startDate ?? null;
+      const startDate = opp.startDate ?? null;
       const statusSource = opp.registrationDeadline ? 'deadline' : startDate ? 'startDate' : 'none';
-      const distanceKm = kmFromTcet((opp as { city?: string | null }).city ?? null);
+      const distanceKm = kmFromTcet(opp.city ?? null);
       return {
         ...opp,
         myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
         regStatusSource: statusSource,
         distanceKm,
         distanceLabel:
-          (opp as { mode?: string | null }).mode === 'ONLINE'
-            ? 'Online'
-            : distanceKm == null
-              ? null
-              : `${distanceKm} km from TCET`,
+          opp.mode === 'ONLINE' ? 'Online' : distanceKm == null ? null : `${distanceKm} km from TCET`,
       };
     });
 

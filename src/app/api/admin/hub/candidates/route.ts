@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     if (!authorize(user, 'ADMIN')) return errorRes('Forbidden', ['Admin access required'], 403);
     const raw = req.nextUrl.searchParams.get('status')?.trim().toUpperCase() || '';
     const statuses = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    const rows = await (prisma as any).hubCandidate.findMany({
+    const rows = await prisma.hubCandidate.findMany({
       where: statuses.length > 0 ? { status: { in: statuses } } : {},
       orderBy: { discoveredAt: 'desc' },
       take: 100,
@@ -34,9 +34,9 @@ export async function POST(req: NextRequest) {
     const url = typeof body.url === 'string' ? body.url.trim().slice(0, 512) : '';
     if (!/^https:\/\//.test(url)) return errorRes('Validation failed', ['url must be an https URL'], 400);
     await ensureHubSources();
-    const existing = await (prisma as any).hubCandidate.findUnique({ where: { url } });
+    const existing = await prisma.hubCandidate.findUnique({ where: { url } });
     if (existing) return successRes(existing, 'Candidate already tracked.');
-    const created = await (prisma as any).hubCandidate.create({
+    const created = await prisma.hubCandidate.create({
       data: {
         url,
         source: typeof body.source === 'string' && body.source ? body.source : 'admin',

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { clipDbString } from '@/lib/hackathon-hub';
 import { ensureHubSources } from './sources';
+import { fetchPublicText } from './fetch-guard';
 
 const FETCH_TIMEOUT_MS = 15000;
 const POLITENESS_DELAY_MS = 1500;
@@ -21,7 +22,6 @@ const LISTING_PATTERNS = [
 export const LISTING_TITLES = {
   test: (title: string): boolean => LISTING_PATTERNS.some((re) => re.test(title)),
 };
-  /^(explore|organize|organise|all|upcoming|past|open|find|browse|discover|host)\b[\w\s|–-]*hackathons?\b[\w\s|–-]*$/i;
 
 export function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
@@ -49,25 +49,14 @@ export function normalizeUrl(raw: string, base: string): string | null {
 }
 
 async function fetchHtml(url: string): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TCET-CoE-HubBot/1.0',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('html') && !contentType.includes('text')) {
-      throw new Error(`Unexpected content-type: ${contentType}`);
-    }
-    return (await res.text()).slice(0, MAX_HTML_CHARS);
-  } finally {
-    clearTimeout(timer);
-  }
+  // SSRF-guarded: host allowlisted via DNS before fetch, landing re-checked.
+  const { status, text } = await fetchPublicText(url, {
+    timeoutMs: FETCH_TIMEOUT_MS,
+    maxChars: MAX_HTML_CHARS,
+    contentTypes: ['html', 'text'],
+  });
+  if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
+  return text;
 }
 
 export type DiscoveredLink = { url: string; title: string };
@@ -119,28 +108,21 @@ export async function discoverFromSitemap(
 ): Promise<{ discovered: number; error: string | null }> {
   let discovered = 0;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let xml = '';
-    try {
-      const res = await fetch(sitemapUrl, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TCET-CoE-HubBot/1.0', Accept: 'application/xml,text/xml' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      xml = await res.text();
-    } finally {
-      clearTimeout(timer);
-    }
+    const { status, text: xml } = await fetchPublicText(sitemapUrl, {
+      timeoutMs: FETCH_TIMEOUT_MS,
+      accept: 'application/xml,text/xml',
+      contentTypes: ['xml', 'text'],
+    });
+    if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
     const seen = new Set<string>();
     for (const match of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
       const url = match[1].trim().slice(0, 512);
       if (!url.startsWith('https://') || !pathFilter.test(url) || seen.has(url.toLowerCase())) continue;
       seen.add(url.toLowerCase());
-      const existing = await (prisma as any).hubCandidate.findUnique({ where: { url } });
+      const existing = await prisma.hubCandidate.findUnique({ where: { url } });
       if (existing) continue;
       const slug = url.split('/').filter(Boolean).pop() ?? url;
-      await (prisma as any).hubCandidate.create({
+      await prisma.hubCandidate.create({
         data: {
           url,
           source: sourceKey,
@@ -163,7 +145,7 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
   let pagesFetched = 0;
   let discovered = 0;
 
-  const sources = await (prisma as any).hubSource.findMany({
+  const sources = await prisma.hubSource.findMany({
     where: { enabled: true, method: { in: ['PAGE', 'RSS', 'API'] } },
   });
 
@@ -192,9 +174,9 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
       await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
       const hash = sha256(normalizeContent(html));
       for (const link of extractEventLinks(html, seedUrl)) {
-        const existing = await (prisma as any).hubCandidate.findUnique({ where: { url: link.url } });
+        const existing = await prisma.hubCandidate.findUnique({ where: { url: link.url } });
         if (existing) continue;
-        await (prisma as any).hubCandidate.create({
+        await prisma.hubCandidate.create({
           data: {
             url: link.url,
             source: source.key,
@@ -206,21 +188,21 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
         });
         discovered++;
       }
-      await (prisma as any).hubSource.update({
+      await prisma.hubSource.update({
         where: { key: source.key },
         data: { lastRunAt: new Date(), lastError: null },
       });
     } catch (err) {
       const msg = `${source.key}: ${err instanceof Error ? err.message : String(err)}`;
       errors.push(msg);
-      await (prisma as any).hubSource.update({
+      await prisma.hubSource.update({
         where: { key: source.key },
         data: { lastRunAt: new Date(), lastError: msg.slice(0, 1900) },
       });
     }
   }
 
-  await (prisma as any).hubImportLog.create({
+  await prisma.hubImportLog.create({
     data: { source: 'DISCOVERY', discovered, inserted: discovered, errors: errors.length > 0 ? errors : undefined },
   });
 

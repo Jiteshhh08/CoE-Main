@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     const user = authenticate(req);
     if (!user) return errorRes('Unauthorized', [], 401);
     if (!authorize(user, 'ADMIN')) return errorRes('Forbidden', ['Admin access required'], 403);
-    const logs = await (prisma as any).hubImportLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
+    const logs = await prisma.hubImportLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
     return successRes(logs, 'Import logs retrieved.');
   } catch (err) {
     console.error('Hub import logs error:', err);

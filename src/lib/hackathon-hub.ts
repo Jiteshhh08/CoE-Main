@@ -79,10 +79,12 @@ export function clipDbString(value: string | null | undefined, max = 191): strin
 }
 
 // URLs can't be clipped without corrupting them — NULL when unstoreable.
+// Scheme allowlist mirrors hubUrlSchema: only http(s) may be persisted,
+// so a crawled javascript:/data: URL can never reach a rendered <a href>.
 export function fitUrl(value: string | null | undefined, max = 191): string | null {
   if (!value) return null;
   const trimmed = value.trim();
-  if (!trimmed || trimmed.length > max) return null;
+  if (!trimmed || trimmed.length > max || !/^https?:\/\//i.test(trimmed)) return null;
   return trimmed;
 }
 

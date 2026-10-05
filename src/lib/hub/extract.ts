@@ -1,5 +1,7 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256 } from './discovery';
+import { fetchPublicText } from './fetch-guard';
+import type { HubCandidateStatus } from './pipeline';
 
 // Structured extraction (§14). Rule-based first; Qwen AI pass only fills
 // fields the rules could not find. Missing stays NULL — never invented (§41.1).
@@ -242,20 +244,24 @@ export function mandatoryMissing(e: ExtractedEvent): string[] {
 
 async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedEvent> {
   const apiKey = process.env.QWEN_API_KEY?.trim();
-  // Loud skip: without the key, extraction silently degrades to rules-only.
-  if (!apiKey) {
-    console.warn('[hub] QWEN_API_KEY not set — AI fill-in skipped, rules-only extraction');
+  // No hardcoded gateway: URL + model come from env like grants-automation.
+  // Unlike grants (which fails loudly), Hub degrades to rules-only extraction
+  // when AI is unconfigured — extraction must keep working without a key.
+  const gatewayUrl = (process.env.AI_GATEWAY_URL || '').trim();
+  const gatewayModel = (process.env.AI_GATEWAY_MODEL || '').trim();
+  if (!apiKey || !gatewayUrl || !gatewayModel) {
+    console.warn('[hub] AI fill-in skipped (missing QWEN_API_KEY / AI_GATEWAY_URL / AI_GATEWAY_MODEL) — rules-only extraction');
     return current;
   }
   const missing = mandatoryMissing(current);
   if (missing.length === 0) return current;
   const snippet = normalizeContent(html).slice(0, 6000);
   try {
-    const res = await fetch('https://ai.tcetcercd.in/v1/chat/completions', {
+    const res = await fetch(gatewayUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'qwen3.6',
+        model: gatewayModel,
         messages: [{
           role: 'user',
           content: `Extract hackathon fields from the page text below. Return ONLY JSON with keys: eventName, organiser, mode (ONLINE|OFFLINE|HYBRID|null), city, venue, startDate (YYYY-MM-DD|null), endDate, registrationDeadline, teamMin (int|null), teamMax, prizePool, eligibility. Only fill these missing fields: ${missing.join(', ')}. NEVER invent: use null when absent.\n\nPAGE:\n${snippet}`,
@@ -286,25 +292,17 @@ async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedE
 }
 
 async function fetchPage(url: string): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TCET-CoE-HubBot/1.0', Accept: 'text/html,application/xhtml+xml' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return (await res.text()).slice(0, 1_500_000);
-  } finally {
-    clearTimeout(timer);
-  }
+  // SSRF-guarded (DNS allowlist + landing re-check in fetch-guard).
+  const { status, text } = await fetchPublicText(url, { timeoutMs: 15000, contentTypes: ['html', 'text'] });
+  if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
+  return text;
 }
 
 export type ExtractionResult = { processed: number; verified: number; needsReview: number; errors: string[] };
 
 export async function runExtraction(limit = 10): Promise<ExtractionResult> {
   const result: ExtractionResult = { processed: 0, verified: 0, needsReview: 0, errors: [] };
-  const candidates = await (prisma as any).hubCandidate.findMany({
+  const candidates = await prisma.hubCandidate.findMany({
     where: { status: { in: ['DISCOVERED', 'PROCESSING'] } },
     orderBy: { discoveredAt: 'asc' },
     take: limit,
@@ -312,7 +310,7 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
 
   for (const candidate of candidates) {
     try {
-      await (prisma as any).hubCandidate.update({ where: { id: candidate.id }, data: { status: 'PROCESSING', error: null } });
+      await prisma.hubCandidate.update({ where: { id: candidate.id }, data: { status: 'PROCESSING', error: null } });
       const html = await fetchPage(candidate.url);
       let extracted = extractFromHtml(html, candidate.url, candidate.title);
       extracted = await aiFill(html, extracted);
@@ -320,8 +318,9 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       const missing = mandatoryMissing(extracted);
       const pageHash = sha256(normalizeContent(html));
       // Auto-validate (§19): complete + confident → VERIFIED, else NEEDS_REVIEW.
-      const status = missing.length === 0 && confidence >= 0.9 ? 'VERIFIED' : 'NEEDS_REVIEW';
-      await (prisma as any).hubCandidate.update({
+      const status: HubCandidateStatus =
+        missing.length === 0 && confidence >= 0.9 ? 'VERIFIED' : 'NEEDS_REVIEW';
+      await prisma.hubCandidate.update({
         where: { id: candidate.id },
         data: {
           status,
@@ -338,7 +337,7 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
     } catch (err) {
       const msg = `Candidate ${candidate.id}: ${err instanceof Error ? err.message : String(err)}`;
       result.errors.push(msg);
-      await (prisma as any).hubCandidate.update({
+      await prisma.hubCandidate.update({
         where: { id: candidate.id },
         data: { status: 'NEEDS_REVIEW', error: msg.slice(0, 1900) },
       });

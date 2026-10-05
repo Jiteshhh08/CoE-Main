@@ -4,22 +4,15 @@ import { sendHubAdminAlert, sendHubClosingSoonReminder } from '@/lib/mailer';
 import { normalizeContent, sha256 } from './discovery';
 import { extractFromHtml } from './extract';
 import { IMPORTANT_FIELDS, diffImportant } from './pipeline';
+import { fetchPublicText } from './fetch-guard';
 
 const appBaseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 async function fetchText(url: string, timeoutMs = 12000): Promise<{ status: number; html: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TCET-CoE-HubBot/1.0', Accept: 'text/html,application/xhtml+xml' },
-    });
-    const html = res.ok ? (await res.text()).slice(0, 1_500_000) : '';
-    return { status: res.status, html };
-  } finally {
-    clearTimeout(timer);
-  }
+  // SSRF-guarded (DNS allowlist + landing re-check); non-2xx yields empty
+  // body so 404/403 handling below keeps working.
+  const { status, text } = await fetchPublicText(url, { timeoutMs, contentTypes: ['html', 'text'] });
+  return { status, html: text };
 }
 
 async function notifyAdmin(kind: string, title: string, detail: string, dedupe: string) {
@@ -39,7 +32,7 @@ async function notifyAdmin(kind: string, title: string, detail: string, dedupe: 
 // Change detection (§21–22) + broken-link review (§41.4).
 export async function runMonitor() {
   const out = { checked: 0, changed: 0, broken: 0, errors: [] as string[] };
-  const rows = await (prisma as any).opportunity.findMany({
+  const rows = await prisma.opportunity.findMany({
     where: { status: 'APPROVED' },
     select: {
       id: true, title: true, sourceUrl: true, applicationUrl: true, pageHash: true,
@@ -57,7 +50,7 @@ export async function runMonitor() {
       const { status, html } = await fetchText(watchUrl);
       if (status === 404) {
         out.broken++;
-        await (prisma as any).opportunity.update({
+        await prisma.opportunity.update({
           where: { id: opp.id },
           data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: new Date() },
         });
@@ -68,7 +61,7 @@ export async function runMonitor() {
       const hash = sha256(normalizeContent(html));
       if (opp.pageHash && hash === opp.pageHash) continue;
       if (!opp.pageHash) {
-        await (prisma as any).opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
+        await prisma.opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
         continue;
       }
       const fresh = extractFromHtml(html, watchUrl, opp.title);
@@ -84,11 +77,11 @@ export async function runMonitor() {
           endDate: fresh.endDate ? new Date(fresh.endDate) : null,
         },
       );
-      await (prisma as any).opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
+      await prisma.opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
       const important = diffs.filter((d) => (IMPORTANT_FIELDS as readonly string[]).includes(d.field));
       if (important.length > 0) {
         out.changed++;
-        await (prisma as any).opportunity.update({
+        await prisma.opportunity.update({
           where: { id: opp.id },
           data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: new Date() },
         });
@@ -108,7 +101,7 @@ export async function runClosingSoon() {
   const out = { events: 0, reminded: 0, errors: [] as string[] };
   const now = new Date();
   const horizon = new Date(now.getTime() + 2 * 86_400_000);
-  const rows = await (prisma as any).opportunity.findMany({
+  const rows = await prisma.opportunity.findMany({
     where: { status: 'APPROVED', registrationDeadline: { gt: now, lte: horizon } },
     select: { id: true, title: true, registrationDeadline: true, applicationUrl: true },
     take: 100,
@@ -116,15 +109,14 @@ export async function runClosingSoon() {
 
   for (const opp of rows) {
     try {
-      const interests = await (prisma as any).opportunityInterest.findMany({
+      const interests = await prisma.opportunityInterest.findMany({
         where: { opportunityId: opp.id },
         include: { user: { select: { email: true, status: true } } },
         take: 500,
       });
-      type InterestRow = { user: { email: string; status: string } };
       const emails = Array.from(
         new Set(
-          (interests as InterestRow[])
+          interests
             .map((i) => i.user)
             .filter((u) => u.status === 'ACTIVE')
             .map((u) => u.email),
@@ -136,7 +128,7 @@ export async function runClosingSoon() {
       for (const email of emails) {
         await sendHubClosingSoonReminder(email, {
           eventTitle: opp.title,
-          deadline: new Date(opp.registrationDeadline).toISOString(),
+          deadline: (opp.registrationDeadline ?? now).toISOString(),
           applyUrl: opp.applicationUrl,
           dedupeKey: `hub-closing-${opp.id}-${day}-${email}`,
         });

@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { opportunityCreateSchema } from '@/lib/validators';
 import { normalizeName, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { fetchPublicText } from './fetch-guard';
 
 // Google Sheet as lightweight CMS (§24): admins paste a Sheet CSV-export URL
 // or upload a CSV file. One row = one hackathon. Never blindly overwrites
@@ -105,10 +106,10 @@ export async function runCsvImport(
       // Duplicate detection (§16): source URL first, then normalized name+organizer+start.
       let existing: { id: number; verificationStatus: string; sourceType: string } | null = null;
       if (data.sourceUrl) {
-        existing = await (prisma as any).opportunity.findFirst({ where: { sourceUrl: data.sourceUrl } });
+        existing = await prisma.opportunity.findFirst({ where: { sourceUrl: data.sourceUrl } });
       }
       if (!existing) {
-        const rivals = await (prisma as any).opportunity.findMany({
+        const rivals = await prisma.opportunity.findMany({
           where: { organizer: data.organizer },
           select: { id: true, title: true, verificationStatus: true, sourceType: true, startDate: true },
           take: 50,
@@ -142,7 +143,7 @@ export async function runCsvImport(
       };
 
       if (!existing) {
-        await (prisma as any).opportunity.create({
+        await prisma.opportunity.create({
           data: {
             ...record,
             status: autoApprove ? 'APPROVED' : 'PENDING',
@@ -162,7 +163,7 @@ export async function runCsvImport(
           result.errors.push(`Row ${rowNo}: conflicts with verified record #${existing.id} — flagged, not overwritten`);
           continue;
         }
-        await (prisma as any).opportunity.update({ where: { id: existing.id }, data: record });
+        await prisma.opportunity.update({ where: { id: existing.id }, data: record });
         result.updated++;
       }
     } catch (err) {
@@ -171,7 +172,7 @@ export async function runCsvImport(
     }
   }
 
-  await (prisma as any).hubImportLog.create({
+  await prisma.hubImportLog.create({
     data: {
       source: opts.origin,
       discovered: result.total,
@@ -187,15 +188,13 @@ export async function runCsvImport(
 }
 
 export async function fetchSheetCsv(sheetUrl: string): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const res = await fetch(sheetUrl, { signal: controller.signal, headers: { Accept: 'text/csv,text/plain' } });
-    if (!res.ok) throw new Error(`Sheet fetch failed: HTTP ${res.status}`);
-    const text = await res.text();
-    if (!text.includes(',')) throw new Error('Sheet did not return CSV — use File → Share → Publish to web (CSV).');
-    return text;
-  } finally {
-    clearTimeout(timer);
-  }
+  // SSRF-guarded: admin-supplied URL is DNS-checked before fetch.
+  const { status, text } = await fetchPublicText(sheetUrl, {
+    timeoutMs: 20000,
+    accept: 'text/csv,text/plain',
+    contentTypes: ['csv', 'text', 'octet-stream'],
+  });
+  if (status < 200 || status >= 300) throw new Error(`Sheet fetch failed: HTTP ${status}`);
+  if (!text.includes(',')) throw new Error('Sheet did not return CSV — use File → Share → Publish to web (CSV).');
+  return text;
 }
