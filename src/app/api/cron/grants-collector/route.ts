@@ -3,8 +3,12 @@ import { authenticate, authorize, errorRes, successRes } from "@/lib/api-helpers
 import { collectMonthlyGrants } from "@/lib/grants/automation";
 
 // In-memory run guard (same pattern as src/app/api/auth/*/route.ts).
-// A full collection scrapes 6 external pages + calls the AI gateway,
-// so reject repeat triggers within 10 minutes.
+// A full collection (Tavily search + AI call + store) is expensive, so reject
+// repeat triggers within 10 minutes. Constraint: module-level state resets on
+// every deploy/restart and is per-process — valid only while the app runs as a
+// single instance (prod is fork_mode / single instance today). Do not rely on
+// this if the app is ever clustered; the DB idempotency check remains the
+// real duplicate protection.
 let lastFullRunAt = 0;
 
 function isAuthorizedCron(req: NextRequest) {

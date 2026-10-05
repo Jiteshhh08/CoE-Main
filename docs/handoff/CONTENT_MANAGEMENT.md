@@ -264,7 +264,7 @@ The workflow runs on the 1st (primary) and the 5th (retry) of every month at 08:
 
 ### Endpoint rate limits
 
-In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes): collection max once per 10 minutes — returns HTTP 429 when exceeded. Missing setup fails loudly instead: if `QWEN_API_KEY` or `TAVILY_API_KEY` is absent, the endpoint returns HTTP 503 with `NOT_CONFIGURED` errors and creates no run row — distinguishable from a transient `FAILED` run.
+In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes): collection max once per 10 minutes — returns HTTP 429 when exceeded. Missing setup fails loudly instead: if `QWEN_API_KEY` or `TAVILY_API_KEY` is absent, the endpoint returns HTTP 503 with `NOT_CONFIGURED` errors and creates no run row — distinguishable from a transient `FAILED` run. Env-configured fetch URLs are constrained by `FETCH_HOST_ALLOWLIST` (default: api.tavily.com, ai.tcetcercd.in). Each run first sweeps stale rows (unfinished >2h → `FAILED`) so killed runs never look in-flight forever.
 
 ### Environment Variables
 

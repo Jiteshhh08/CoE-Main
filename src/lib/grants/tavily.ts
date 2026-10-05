@@ -10,6 +10,35 @@ export type LiveContext = {
   errors: string[];
 };
 
+// Env-configured fetch URLs (TAVILY_API_URL, AI_GATEWAY_URL) must not become
+// an SSRF vector: only these hosts may be fetched, overridable via
+// FETCH_HOST_ALLOWLIST (comma-separated) without a redeploy.
+function allowedFetchHosts(): string[] {
+  const raw =
+    process.env.FETCH_HOST_ALLOWLIST || "api.tavily.com,ai.tcetcercd.in";
+  return raw
+    .split(",")
+    .map((h) => h.trim().toLowerCase().replace(/^www\./, ""))
+    .filter((h) => h.length > 0);
+}
+
+export function assertAllowedFetchUrl(url: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${label}: misconfigured URL ${url}`);
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (parsed.protocol !== "https:") {
+    throw new Error(`${label}: refusing non-https fetch ${url}`);
+  }
+  if (!allowedFetchHosts().some((d) => host === d || host.endsWith("." + d))) {
+    throw new Error(`${label}: host not in FETCH_HOST_ALLOWLIST: ${host}`);
+  }
+  return url;
+}
+
 // Open-internet discovery queries — deliberately NOT domain-restricted.
 // The URL trust check in automation.ts (trusted registry only) is what
 // keeps aggregators and unknown domains out of the published grants.
@@ -32,7 +61,7 @@ async function runQuery(
   apiKey: string,
   query: string
 ): Promise<LiveCandidate[]> {
-  const res = await fetch(apiUrl, {
+  const res = await fetch(assertAllowedFetchUrl(apiUrl, "Tavily"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

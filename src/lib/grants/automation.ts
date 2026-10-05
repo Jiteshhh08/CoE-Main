@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { TRUSTED_SOURCES } from "./sources";
-import { fetchLiveGrantContext, type LiveCandidate } from "./tavily";
+import { fetchLiveGrantContext, assertAllowedFetchUrl, type LiveCandidate } from "./tavily";
 
 // Env-driven so a gateway move or model swap needs no redeploy.
 const AI_GATEWAY_URL =
@@ -59,7 +59,7 @@ const TRUSTED_DOMAINS = TRUSTED_SOURCES.flatMap((s) => {
   return hosts;
 });
 
-function isTrustedUrl(url: string | null): boolean {
+export function isTrustedUrl(url: string | null): boolean {
   if (!url) return false;
   try {
     const hostname = normalizeHostname(new URL(url).hostname);
@@ -235,6 +235,33 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
   let liveResults = 0;
   let liveQueries = 0;
 
+  // Sweep stale runs first: a run killed after create but before
+  // completedAt would otherwise look in-flight forever. Anything unfinished
+  // older than 2h is dead (a full run takes minutes). Prior partial errors
+  // are preserved, not overwritten.
+  const staleCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const staleRuns = await prisma.automationRun.findMany({
+    where: { completedAt: null, startedAt: { lt: staleCutoff } },
+    select: { id: true, errors: true },
+  });
+  for (const stale of staleRuns) {
+    let prior: string[] = [];
+    try {
+      const parsed: unknown = stale.errors ? JSON.parse(stale.errors) : [];
+      if (Array.isArray(parsed)) prior = parsed.map(String);
+    } catch {
+      if (stale.errors) prior = [stale.errors];
+    }
+    await prisma.automationRun.update({
+      where: { id: stale.id },
+      data: {
+        status: "FAILED",
+        errors: JSON.stringify([...prior, "Stale run: process died before completion"]),
+        completedAt: new Date(),
+      },
+    });
+  }
+
   // Idempotency: check if we already ran this month
   const existingRun = await prisma.automationRun.findFirst({
     where: { month, status: { not: "FAILED" } },
@@ -276,7 +303,7 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
 
     const prompt = buildPrompt(month, live.candidates.slice(0, 15));
 
-    const response = await fetch(AI_GATEWAY_URL, {
+    const response = await fetch(assertAllowedFetchUrl(AI_GATEWAY_URL, "AI gateway"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

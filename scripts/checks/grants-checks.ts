@@ -1,11 +1,13 @@
 /**
- * Assert-based checks for the grants collector response parser.
+ * Assert-based checks for the grants collector.
  * Run: npx tsx --env-file=.env scripts/checks/grants-checks.ts
- * Covers: bare JSON array, ```json fenced, prose-wrapped, non-array, malformed.
+ * Covers: response parser (bare JSON array, ```json fenced, prose-wrapped,
+ * non-array, malformed) + trusted-domain URL check (exact, subdomain,
+ * lookalike rejection, aliases).
  * No DB access — pure function checks only.
  */
 import assert from 'node:assert/strict';
-import { parseGrantJson } from '../../src/lib/grants/automation';
+import { parseGrantJson, isTrustedUrl } from '../../src/lib/grants/automation';
 
 let passed = 0;
 const ok = (name: string) => {
@@ -58,9 +60,25 @@ function checkMalformedThrows() {
   ok('malformed input throws');
 }
 
+function checkTrustedUrls() {
+  assert.equal(isTrustedUrl('https://www.dst.gov.in/call-for-proposals'), true);
+  assert.equal(isTrustedUrl('https://dst.gov.in/schemes'), true);
+  assert.equal(isTrustedUrl('https://onlinedst.gov.in/login'), true, 'alias host');
+  assert.equal(isTrustedUrl('https://www.serbonline.in/apply'), true, 'alias host');
+  assert.equal(isTrustedUrl('https://schemes.dst.gov.in/call'), true, 'genuine subdomain');
+  assert.equal(isTrustedUrl('https://evildst.gov.in/'), false, 'lookalike domain');
+  assert.equal(isTrustedUrl('https://dst.gov.in.evil.com/'), false, 'trusted name as subdomain of attacker');
+  assert.equal(isTrustedUrl('https://www.facebook.com/some-video'), false, 'social');
+  assert.equal(isTrustedUrl('https://wemakescholars.com/scholarship/x'), false, 'aggregator');
+  assert.equal(isTrustedUrl(null), false, 'null');
+  assert.equal(isTrustedUrl('not a url'), false, 'malformed');
+  ok('trusted-domain check (exact, subdomain, alias, lookalike rejection)');
+}
+
 checkBareArray();
 checkFenced();
 checkProseWrapped();
 checkNonArrayThrows();
 checkMalformedThrows();
+checkTrustedUrls();
 console.log(`grants-checks: ${passed} passed`);
