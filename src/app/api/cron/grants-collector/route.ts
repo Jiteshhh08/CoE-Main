@@ -41,9 +41,12 @@ export async function GET(req: NextRequest) {
     // from a transient AI failure (FAILED) in automation_runs. No run row is
     // created and the rate-limit slot is not consumed, so an unconfigured
     // endpoint always answers 503 (never a misleading 429).
-    const missing = ["QWEN_API_KEY", "TAVILY_API_KEY"].filter(
-      (k) => !process.env[k]?.trim()
-    );
+    const missing = [
+      "QWEN_API_KEY",
+      "TAVILY_API_KEY",
+      "AI_GATEWAY_URL",
+      "AI_GATEWAY_MODEL",
+    ].filter((k) => !process.env[k]?.trim());
     if (missing.length > 0) {
       return errorRes(
         "Grants collector not configured",

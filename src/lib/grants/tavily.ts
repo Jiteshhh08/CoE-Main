@@ -108,8 +108,9 @@ async function runQuery(
 
 export async function fetchLiveGrantContext(month: string): Promise<LiveContext> {
   const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) throw new Error("TAVILY_API_KEY not configured");
-  const apiUrl = process.env.TAVILY_API_URL || "https://api.tavily.com/search";
+  if (!apiKey) throw new Error("NOT_CONFIGURED: TAVILY_API_KEY not configured");
+  const apiUrl = process.env.TAVILY_API_URL;
+  if (!apiUrl) throw new Error("NOT_CONFIGURED: TAVILY_API_URL not configured");
 
   const candidates: LiveCandidate[] = [];
   const errors: string[] = [];

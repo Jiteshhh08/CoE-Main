@@ -2,10 +2,11 @@ import prisma from "@/lib/prisma";
 import { TRUSTED_SOURCES } from "./sources";
 import { fetchLiveGrantContext, assertAllowedFetchUrl, type LiveCandidate } from "./tavily";
 
-// Env-driven so a gateway move or model swap needs no redeploy.
-const AI_GATEWAY_URL =
-  process.env.AI_GATEWAY_URL || "https://ai.tcetcercd.in/v1/chat/completions";
-const AI_GATEWAY_MODEL = process.env.AI_GATEWAY_MODEL || "qwen3.6";
+// All service endpoints come from env — no URL or model literals in source.
+// Missing values fail loudly (503 NOT_CONFIGURED) instead of silently
+// falling back to a stale default.
+const AI_GATEWAY_URL = process.env.AI_GATEWAY_URL;
+const AI_GATEWAY_MODEL = process.env.AI_GATEWAY_MODEL;
 
 function normalizeHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, "");
@@ -290,6 +291,10 @@ export async function collectMonthlyGrants(): Promise<AutomationResult> {
   try {
     const apiKey = process.env.QWEN_API_KEY;
     if (!apiKey) throw new Error("NOT_CONFIGURED: QWEN_API_KEY not configured");
+    if (!AI_GATEWAY_URL)
+      throw new Error("NOT_CONFIGURED: AI_GATEWAY_URL not configured");
+    if (!AI_GATEWAY_MODEL)
+      throw new Error("NOT_CONFIGURED: AI_GATEWAY_MODEL not configured");
 
     // Step 1: live web context via Tavily (open-internet search) — Qwen
     // structures this data, it does not browse the web itself.

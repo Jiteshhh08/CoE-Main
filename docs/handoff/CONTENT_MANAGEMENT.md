@@ -270,11 +270,11 @@ In-memory guard on `/api/cron/grants-collector` (same pattern as the auth routes
 
 | Variable | Purpose |
 |----------|---------|
-| `QWEN_API_KEY` | College AI Gateway API key |
-| `AI_GATEWAY_URL` | AI gateway endpoint (default: college gateway) |
-| `AI_GATEWAY_MODEL` | AI model name (default: qwen3.6) |
-| `TAVILY_API_URL` | Tavily search endpoint (default: api.tavily.com/search) |
-| `TAVILY_API_KEY` | Tavily API key |
+| `QWEN_API_KEY` | College AI Gateway API key (required) |
+| `AI_GATEWAY_URL` | AI gateway endpoint (required, no default) |
+| `AI_GATEWAY_MODEL` | AI model name, must match the served model exactly (required, no default) |
+| `TAVILY_API_URL` | Tavily search endpoint (required, no default) |
+| `TAVILY_API_KEY` | Tavily API key (required) |
 | `CRON_SECRET` | Auth token for cron endpoints |
 
 ### Trusted Sources
