@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HACKATHON_RUBRIC_WEIGHTS } from './hackathon-scoring';
+import { isSentinel, normalizeIsoDate } from './hub/dates';
 
 // Accepts both UID shapes: fused "24-COMPD13-28" and separate "23-CSE-A-05".
 const tcetUidSchema = z
@@ -632,41 +633,132 @@ export function isValidDepartment(value: string): value is Department {
 
 // ─── External Opportunities & Learning Hub Validators ───
 
+// Dates cross an untrusted boundary here (admin CSV/forms): reject sentinels
+// ("N/A", "-") and impossible calendar dates instead of letting `new Date`
+// roll them over or hand Prisma an Invalid Date.
+const hubDateSchema = z
+  .string()
+  .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid date — use YYYY-MM-DD')
+  .optional()
+  .or(z.literal(''));
+
+const hubModeSchema = z.enum(['ONLINE', 'OFFLINE', 'HYBRID']).optional().or(z.literal(''));
+const hubSourceSchema = z
+  .enum([
+    'OFFICIAL_WEBSITE',
+    'DEVFOLIO',
+    'UNSTOP',
+    'HACKEREARTH',
+    'HACK2SKILL',
+    'MLH',
+    'COLLEGE_WEBSITE',
+    'INDIAHACKATHONS',
+    'GOVERNMENT',
+    'SOCIAL_MEDIA',
+    'ADMIN',
+    'GOOGLE_SHEET',
+    'OTHER',
+  ])
+  .optional();
+const hubVerificationSchema = z
+  .enum(['UNVERIFIED', 'PLATFORM_VERIFIED', 'OFFICIAL_SOURCE', 'ADMIN_VERIFIED', 'VERIFIED'])
+  .optional();
+
+const hubShortText = (label: string, min = 0) => {
+  let schema = z.string().trim();
+  schema = min > 0 ? schema.min(min, `${label} must be at least ${min} characters`) : schema;
+  return schema.max(191, `${label} must be at most 191 characters`).optional().or(z.literal(''));
+};
+
+// URL allowlist: http(s) only — javascript:/data: schemes must never reach
+// the student-facing "Register now" link (rendered as a real <a href>).
+const hubUrlSchema = z
+  .string()
+  .trim()
+  .refine((u) => u === '' || /^https?:\/\//i.test(u), 'Must be an http(s) URL')
+  .refine((u) => u.length <= 191, 'URL must be at most 191 characters')
+  .optional()
+  .or(z.literal(''));
+
+const hubRangeCheck = (data: { startDate?: string; endDate?: string; teamMin?: number; teamMax?: number }) => {
+  const issues: string[] = [];
+  if (data.startDate && data.endDate) {
+    const s = Date.parse(data.startDate);
+    const e = Date.parse(data.endDate);
+    if (!Number.isNaN(s) && !Number.isNaN(e) && s > e) issues.push('startDate must be on or before endDate');
+  }
+  if (data.teamMin != null && data.teamMax != null && data.teamMin > data.teamMax) {
+    issues.push('teamMin must be less than or equal to teamMax');
+  }
+  return issues;
+};
+
 export const opportunityCreateSchema = z.object({
-  title: z.string().trim().min(2, 'Title must be at least 2 characters'),
-  category: z.string().trim().min(2, 'Category must be at least 2 characters'),
-  organizer: z.string().trim().min(2, 'Organizer must be at least 2 characters'),
+  title: z.string().trim().min(2, 'Title must be at least 2 characters').max(191, 'Title must be at most 191 characters'),
+  category: z.string().trim().min(2, 'Category must be at least 2 characters').max(191, 'Category must be at most 191 characters'),
+  organizer: z.string().trim().min(2, 'Organizer must be at least 2 characters').max(191, 'Organizer must be at most 191 characters'),
   description: z.string().trim().optional().or(z.literal('')),
-  eligibility: z.string().trim().optional().or(z.literal('')),
-  prize: z.string().trim().optional().or(z.literal('')),
-  applicationUrl: z.string().trim().optional().or(z.literal('')),
+  eligibility: hubShortText('Eligibility'),
+  prize: hubShortText('Prize'),
+  applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
-    .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
+    .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid registrationDeadline - use YYYY-MM-DD')
     .optional()
     .or(z.literal('')),
   themes: z.array(z.string().trim().min(1)).optional(),
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
+  mode: hubModeSchema,
+  venue: hubShortText('Venue'),
+  city: hubShortText('City'),
+  state: hubShortText('State'),
+  startDate: hubDateSchema,
+  endDate: hubDateSchema,
+  teamMin: z.coerce.number().int().min(1).max(20).optional(),
+  teamMax: z.coerce.number().int().min(1).max(20).optional(),
+  sourceUrl: hubUrlSchema,
+  sourceType: hubSourceSchema,
+  verificationStatus: hubVerificationSchema,
+}).superRefine((data, ctx) => {
+  for (const issue of hubRangeCheck(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }
 });
 
 export const opportunityUpdateSchema = z.object({
-  title: z.string().trim().min(2, 'Title must be at least 2 characters').optional(),
-  category: z.string().trim().min(2, 'Category must be at least 2 characters').optional(),
-  organizer: z.string().trim().min(2, 'Organizer must be at least 2 characters').optional(),
+  title: z.string().trim().min(2, 'Title must be at least 2 characters').max(191, 'Title must be at most 191 characters').optional(),
+  category: z.string().trim().min(2, 'Category must be at least 2 characters').max(191, 'Category must be at most 191 characters').optional(),
+  organizer: z.string().trim().min(2, 'Organizer must be at least 2 characters').max(191, 'Organizer must be at most 191 characters').optional(),
   description: z.string().trim().optional().or(z.literal('')),
-  eligibility: z.string().trim().optional().or(z.literal('')),
-  prize: z.string().trim().optional().or(z.literal('')),
-  applicationUrl: z.string().trim().optional().or(z.literal('')),
+  eligibility: hubShortText('Eligibility'),
+  prize: hubShortText('Prize'),
+  applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
-    .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
+    .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid registrationDeadline - use YYYY-MM-DD')
     .optional()
     .or(z.literal('')),
   themes: z.array(z.string().trim().min(1)).optional(),
   technologies: z.array(z.string().trim().min(1)).optional(),
   facultyRecommended: z.boolean().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  showInHub: z.boolean().optional(),
+  mode: hubModeSchema,
+  venue: hubShortText('Venue'),
+  city: hubShortText('City'),
+  state: hubShortText('State'),
+  startDate: hubDateSchema,
+  endDate: hubDateSchema,
+  teamMin: z.coerce.number().int().min(1).max(20).optional(),
+  teamMax: z.coerce.number().int().min(1).max(20).optional(),
+  sourceUrl: hubUrlSchema,
+  sourceType: hubSourceSchema,
+  verificationStatus: hubVerificationSchema,
+}).superRefine((data, ctx) => {
+  for (const issue of hubRangeCheck(data)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
+  }
 });
 
 export const opportunityStatusSchema = z.object({

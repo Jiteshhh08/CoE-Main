@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import ApplyModal from '@/components/ApplyModal';
 import FacultyApplyModal from '@/components/FacultyApplyModal';
+import DetailModal from '@/components/DetailModal';
 import { useToast } from "@/components/ToastProvider";
 import Link from 'next/link';
 
@@ -24,6 +25,8 @@ type ProblemRow = {
   isIndustryProblem: boolean;
   industryName: string | null;
   supportDocumentUrl: string | null;
+  difficulty?: string | null;
+  sdgTags?: string[] | null;
   mode: 'OPEN' | 'CLOSED';
   status: 'OPENED' | 'CLOSED' | 'ARCHIVED';
   createdById: number;
@@ -64,6 +67,7 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
 
   // Apply modal state
   const [applyingProblem, setApplyingProblem] = useState<ProblemRow | null>(null);
+  const [detailProblem, setDetailProblem] = useState<ProblemRow | null>(null);
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
   const [isFacultyApplyModalOpen, setIsFacultyApplyModalOpen] = useState(false);
   const [userApplications, setUserApplications] = useState<Set<number>>(new Set());
@@ -158,6 +162,7 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
 
     if (listingType === 'faculty-internship') {
       if (role !== 'FACULTY') {
+        pushToast('Only faculty can apply to faculty internships.', 'info');
         return;
       }
       setApplyingProblem(problem);
@@ -166,6 +171,7 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
     }
 
     if (role !== 'STUDENT') {
+      pushToast('Only students can apply to open problems — sign in with a student account to apply.', 'info');
       return; // Only students can apply
     }
 
@@ -282,8 +288,8 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
           </div>
         )}
 
-        {isOpen ? (
-          <div className="mt-4">
+        {isOpen && (role === 'STUDENT' || role === null) ? (
+          <div className="mt-4 flex flex-col gap-2">
             {isAlreadyApplied ? (
               <button
                 disabled
@@ -299,8 +305,28 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
                 Apply Now
               </button>
             )}
+            <button
+              onClick={() => setDetailProblem(problem)}
+              className="w-full border border-[#002155] bg-white px-4 py-2 text-xs font-bold uppercase tracking-wider rounded text-[#002155] hover:bg-[#f0f2fa] transition-colors"
+            >
+              View Details
+            </button>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-4">
+            {isOpen && role ? (
+              <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wider text-[#747782]">
+                Student applications only
+              </p>
+            ) : null}
+            <button
+              onClick={() => setDetailProblem(problem)}
+              className="w-full border border-[#002155] bg-white px-4 py-2 text-xs font-bold uppercase tracking-wider rounded text-[#002155] hover:bg-[#f0f2fa] transition-colors"
+            >
+              View Details
+            </button>
+          </div>
+        )}
       </article>
     );
   };
@@ -530,6 +556,23 @@ export default function InnovationProblemsClient({ role, listingType = 'open' }:
             setApplyingProblem(null);
           }}
           onSuccess={handleApplySuccess}
+        />
+      ) : null}
+
+      {detailProblem ? (
+        <DetailModal
+          open
+          onClose={() => setDetailProblem(null)}
+          kicker={detailProblem.problemType === 'OPEN' ? 'Open Problem' : detailProblem.problemType}
+          title={detailProblem.title}
+          meta={[
+            ...(detailProblem.tags ? [{ label: 'Tags', value: detailProblem.tags }] : []),
+            ...(detailProblem.difficulty ? [{ label: 'Difficulty', value: detailProblem.difficulty }] : []),
+            ...(detailProblem.sdgTags && detailProblem.sdgTags.length > 0
+              ? [{ label: 'SDG', value: detailProblem.sdgTags.join(', ') }]
+              : []),
+          ]}
+          body={detailProblem.description}
         />
       ) : null}
 

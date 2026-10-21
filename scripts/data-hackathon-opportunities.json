@@ -1,0 +1,677 @@
+[
+ {
+  "title": "Hack-Nation Global AI Hackathon – Bombay Hub",
+  "category": "Hackathon",
+  "organizer": "Analytics Club, IIT Bombay / Hack-Nation",
+  "description": "3–4 Oct · Mumbai / Offline\nDomain: AI / GenAI\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, CSE-Cyber, CSE-IoT\nStrategy focus: Working AI MVP + measurable demo\nDeadline info (as listed): Application / Approval",
+  "registrationDeadline": null,
+  "deadlineRaw": "Application / Approval",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, CSE-Cyber, CSE-IoT",
+  "prize": "$30K+ + AI credits",
+  "themes": [
+   "AI",
+   "GenAI"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "CSE-Cyber",
+   "CSE-IoT"
+  ],
+  "applicationUrl": "https://luma.com/vpgf3s3t",
+  "facultyRecommended": false
+ },
+ {
+  "title": "evm capital Hackathon",
+  "category": "Hackathon",
+  "organizer": "Venture Catalysts++",
+  "description": "10–11 Oct · Andheri, Mumbai\nDomain: Startup / AI / Product\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, CSE-Cyber\nStrategy focus: Demonstrate actual traction\nDeadline info (as listed): Final list 5 Oct",
+  "registrationDeadline": "2026-10-05T23:59:00",
+  "deadlineRaw": "Final list 5 Oct",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, CSE-Cyber",
+  "prize": "₹1 lakh + grants/bounties",
+  "themes": [
+   "Startup",
+   "AI",
+   "Product"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://luma.com/0z07eni5",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Mumbai Actuarial AI Hackathon 2026",
+  "category": "Hackathon",
+  "organizer": "Actuators",
+  "description": "10 Oct · Mumbai / Offline\nDomain: AI / Analytics\nTCET relevant branches: AI&DS, AI&ML, COMP, IT\nStrategy focus: Validation + assumptions\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "AI&DS, AI&ML, COMP, IT",
+  "prize": "₹1 lakh+",
+  "themes": [
+   "AI",
+   "Analytics"
+  ],
+  "technologies": [
+   "AI&DS",
+   "AI&ML",
+   "COMP",
+   "IT"
+  ],
+  "applicationUrl": "https://iac.actuatorseducation.com/hackathon/mumbai-2026",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackMatrix 5.0",
+  "category": "Hackathon",
+  "organizer": "PCCOE GFG Student Chapter",
+  "description": "10–11 Oct · Pune / Offline\nDomain: AI/ML / Software\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, CSE-IoT, MECH, CIVIL\nStrategy focus: Functional MVP\nDeadline info (as listed): 27 Sep",
+  "registrationDeadline": "2026-09-27T23:59:00",
+  "deadlineRaw": "27 Sep",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, CSE-IoT, MECH, CIVIL",
+  "prize": "₹1 lakh",
+  "themes": [
+   "AI",
+   "ML",
+   "Software"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "CSE-IoT",
+   "MECH",
+   "CIVIL"
+  ],
+  "applicationUrl": "https://iac.actuatorseducation.com/hackathon/mumbai-2026",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackITon'26",
+  "category": "Hackathon",
+  "organizer": "KPRIET",
+  "description": "8–9 Oct · Coimbatore / Offline\nDomain: Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber\nStrategy focus: Role allocation + working demo\nDeadline info (as listed): 24 Sep",
+  "registrationDeadline": "2026-09-24T23:59:00",
+  "deadlineRaw": "24 Sep",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber",
+  "prize": "₹20K + internships",
+  "themes": [
+   "Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "IoT",
+   "ECS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://www.hackiton.in/26",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Hackurity 2026",
+  "category": "Hackathon",
+  "organizer": "REVA University",
+  "description": "14–15 Oct · Bengaluru / Offline\nDomain: AI Security / Cyber / IoT / Blockchain\nTCET relevant branches: CSE-Cyber, CSE-IoT, COMP, IT, AI&ML\nStrategy focus: Threat model + security PoC\nDeadline info (as listed): 3 Oct",
+  "registrationDeadline": "2026-10-03T23:59:00",
+  "deadlineRaw": "3 Oct",
+  "eligibility": "CSE-Cyber, CSE-IoT, COMP, IT, AI&ML",
+  "prize": null,
+  "themes": [
+   "AI Security",
+   "Cyber",
+   "IoT",
+   "Blockchain"
+  ],
+  "technologies": [
+   "CSE-Cyber",
+   "CSE-IoT",
+   "COMP",
+   "IT",
+   "AI&ML"
+  ],
+  "applicationUrl": "https://www.revacyberclub.tech/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Fetch-A-Thon 3.0",
+  "category": "Hackathon",
+  "organizer": "Fetch.ai Innovation Lab",
+  "description": "24 Oct · India\nDomain: AI Agents\nTCET relevant branches: AI&ML, AI&DS, COMP, IT, CSE-IoT, CSE-Cyber\nStrategy focus: Demonstrate autonomous workflow\nDeadline info (as listed): Deadline NS",
+  "registrationDeadline": null,
+  "deadlineRaw": "Deadline NS",
+  "eligibility": "AI&ML, AI&DS, COMP, IT, CSE-IoT, CSE-Cyber",
+  "prize": null,
+  "themes": [
+   "AI Agents"
+  ],
+  "technologies": [
+   "AI&ML",
+   "AI&DS",
+   "COMP",
+   "IT",
+   "CSE-IoT",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://www.fetch.ai/events/fetch-a-thon-3",
+  "facultyRecommended": false
+ },
+ {
+  "title": "NASA Space Apps Challenge 2026",
+  "category": "Hackathon",
+  "organizer": "NASA + partners",
+  "description": "14–15 Nov · Global / Local / Virtual\nDomain: Space / Earth / Climate / Data / AI\nTCET relevant branches: ALL TCET BRANCHES\nStrategy focus: Dataset-driven prototype\nDeadline info (as listed): Registration open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Registration open",
+  "eligibility": "ALL TCET BRANCHES",
+  "prize": null,
+  "themes": [
+   "Space",
+   "Earth",
+   "Climate",
+   "Data",
+   "AI"
+  ],
+  "technologies": null,
+  "applicationUrl": "https://www.spaceappschallenge.org/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Frontier of Intelligence Hackathon",
+  "category": "Hackathon",
+  "organizer": "Listed organizer",
+  "description": "5–6 Nov · Mumbai\nDomain: AI Agents / Multi-Agent\nTCET relevant branches: AI&ML, AI&DS, COMP, IT, CSE-Cyber, CSE-IoT\nStrategy focus: Multi-agent workflow\nDeadline info (as listed): Deadline NS",
+  "registrationDeadline": null,
+  "deadlineRaw": "Deadline NS",
+  "eligibility": "AI&ML, AI&DS, COMP, IT, CSE-Cyber, CSE-IoT",
+  "prize": "$10K listed",
+  "themes": [
+   "AI Agents",
+   "Multi-Agent"
+  ],
+  "technologies": [
+   "AI&ML",
+   "AI&DS",
+   "COMP",
+   "IT",
+   "CSE-Cyber",
+   "CSE-IoT"
+  ],
+  "applicationUrl": "https://luma.com/ub56pe38",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Hack in Hills '26",
+  "category": "Hackathon",
+  "organizer": "Hack in Hills",
+  "description": "20–21 Nov · Manali / Offline\nDomain: Software / Web3 / Gaming\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-Cyber\nStrategy focus: Narrow, complete MVP\nDeadline info (as listed): 20 Oct reported",
+  "registrationDeadline": "2026-10-20T23:59:00",
+  "deadlineRaw": "20 Oct reported",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-Cyber",
+  "prize": "₹50K",
+  "themes": [
+   "Software",
+   "Web3",
+   "Gaming"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://hackinhills.com/register",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Megathon X",
+  "category": "Hackathon",
+  "organizer": "IIIT Hyderabad",
+  "description": "10–11 Oct · Hyderabad / Offline\nDomain: Open Technology\nTCET relevant branches: All technical branches\nStrategy focus: Rapid problem decomposition\nDeadline info (as listed): Deadline NS",
+  "registrationDeadline": null,
+  "deadlineRaw": "Deadline NS",
+  "eligibility": "All technical branches",
+  "prize": "₹8 lakh+",
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": null,
+  "applicationUrl": "https://megathon.in/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackNEX 2026",
+  "category": "Hackathon",
+  "organizer": "Karunya Institute",
+  "description": "8–9 Oct · Coimbatore / Offline\nDomain: Frontier Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber\nStrategy focus: Architecture + mentor validation\nDeadline info (as listed): 6 Oct, 6 PM",
+  "registrationDeadline": "2026-10-06T18:00:00",
+  "deadlineRaw": "6 Oct, 6 PM",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber",
+  "prize": "₹1.5 lakh+",
+  "themes": [
+   "Frontier Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "IoT",
+   "ECS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://www.hacknex.me/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Innohacks 4.0",
+  "category": "Hackathon",
+  "organizer": "KIET / Innogeeks",
+  "description": "10–11 Oct · Ghaziabad / Offline\nDomain: Innovation / Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber\nStrategy focus: Strong idea + implementation\nDeadline info (as listed): 26 Sep",
+  "registrationDeadline": "2026-09-26T23:59:00",
+  "deadlineRaw": "26 Sep",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, IoT, ECS, CSE-Cyber",
+  "prize": null,
+  "themes": [
+   "Innovation",
+   "Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "IoT",
+   "ECS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://innohacks-4.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Hack With GDG S4",
+  "category": "Hackathon",
+  "organizer": "GDG KSR College",
+  "description": "8–10 Oct · Tamil Nadu / Offline\nDomain: Software / Google Technologies\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-IoT, CSE-Cyber\nStrategy focus: Modular architecture\nDeadline info (as listed): Open / deadline per event",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open / deadline per event",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-IoT, CSE-Cyber",
+  "prize": null,
+  "themes": [
+   "Software",
+   "Google Technologies"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-IoT",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://hack-with-gdg-s4.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "DEFINE 4.0",
+  "category": "Hackathon",
+  "organizer": "Mar Baselios College",
+  "description": "9–10 Oct · Thiruvananthapuram\nDomain: Open Technology\nTCET relevant branches: All technical branches\nStrategy focus: Complete workflow\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "All technical branches",
+  "prize": "$4,750",
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": null,
+  "applicationUrl": "https://define4.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackInverse 1.0",
+  "category": "Hackathon",
+  "organizer": "Devfolio organizer",
+  "description": "10–11 Oct · Kolkata\nDomain: Open Innovation\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Adaptable MVP\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": null,
+  "themes": [
+   "Open Innovation"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://hackinverse-s1.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Hackify 3.0",
+  "category": "Hackathon",
+  "organizer": "IEDC MACE",
+  "description": "9–11 Oct · Kothamangalam\nDomain: Defence / Cyber / Humanitarian\nTCET relevant branches: CSE-Cyber, COMP, IT, AI&ML, AI&DS, ECS, Civil, Mechanical\nStrategy focus: Practical workflow\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "CSE-Cyber, COMP, IT, AI&ML, AI&DS, ECS, Civil, Mechanical",
+  "prize": null,
+  "themes": [
+   "Defence",
+   "Cyber",
+   "Humanitarian"
+  ],
+  "technologies": [
+   "CSE-Cyber",
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "Civil",
+   "Mechanical"
+  ],
+  "applicationUrl": "https://hackify-3.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Codeutsava X.0",
+  "category": "Hackathon",
+  "organizer": "Turing Club, NIT Raipur",
+  "description": "3–4 Oct · Raipur / Offline\nDomain: Software + Hardware\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, CSE-IoT, MECH, Mechatronics, Civil\nStrategy focus: Multidisciplinary integration\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, CSE-IoT, MECH, Mechatronics, Civil",
+  "prize": "₹40 lakh+",
+  "themes": [
+   "Software + Hardware"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "CSE-IoT",
+   "MECH",
+   "Mechatronics",
+   "Civil"
+  ],
+  "applicationUrl": "https://codeutsava-x.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "RECURSIVE — Shift-8",
+  "category": "Hackathon",
+  "organizer": "GNIT Kolkata ACM Student Chapter",
+  "description": "8 Oct · Kolkata / Offline\nDomain: Open Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Focused MVP\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": null,
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://recursiveacm.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackSpire'26",
+  "category": "Hackathon",
+  "organizer": "FIEM ACM Student Chapter",
+  "description": "2–3 Oct · Kolkata / Offline\nDomain: AI, Blockchain, Cyber, IoT, Robotics\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT, ECS\nStrategy focus: Verify submission window\nDeadline info (as listed): Schedule conflict",
+  "registrationDeadline": null,
+  "deadlineRaw": "Schedule conflict",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT, ECS",
+  "prize": null,
+  "themes": [
+   "AI",
+   "Blockchain",
+   "Cyber",
+   "IoT",
+   "Robotics"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-Cyber",
+   "CSE-IoT",
+   "ECS"
+  ],
+  "applicationUrl": "https://hackspire26.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Realm Hack '26",
+  "category": "Hackathon",
+  "organizer": "CFRA / College of Engineering Karunagappally",
+  "description": "23–24 Oct · Kerala / Offline\nDomain: Open Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Strong abstract + execution\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": null,
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://realm-hack-1.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackTopus'FE",
+  "category": "Hackathon",
+  "organizer": "GDG On Campus GLA University",
+  "description": "14–16 Oct · Mathura / 48h\nDomain: Software / AI / Startup\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-IoT, ECS\nStrategy focus: Full-stack MVP\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-IoT, ECS",
+  "prize": "Prizes + accommodation/food",
+  "themes": [
+   "Software",
+   "AI",
+   "Startup"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-IoT",
+   "ECS"
+  ],
+  "applicationUrl": "https://hacktopusgdg.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Innosprint 2.0",
+  "category": "Hackathon",
+  "organizer": "D4 Community / CGC Jhanjeri",
+  "description": "10–11 Oct · India / Offline\nDomain: Open Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Functional solution\nDeadline info (as listed): Open",
+  "registrationDeadline": null,
+  "deadlineRaw": "Open",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": null,
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://innosprint-3.devfolio.co/",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Navonmesh 26",
+  "category": "Hackathon",
+  "organizer": "Shri Shankaracharya Institute",
+  "description": "1–2 Nov · India / Offline\nDomain: Edge AI / Computer Vision\nTCET relevant branches: AI&ML, AI&DS, COMP, IT, CSE-IoT, ECS, CSE-Cyber\nStrategy focus: Edge AI/CV prototype\nDeadline info (as listed): 30 Sep",
+  "registrationDeadline": "2026-09-30T23:59:00",
+  "deadlineRaw": "30 Sep",
+  "eligibility": "AI&ML, AI&DS, COMP, IT, CSE-IoT, ECS, CSE-Cyber",
+  "prize": "Prizes + certificates",
+  "themes": [
+   "Edge AI",
+   "Computer Vision"
+  ],
+  "technologies": [
+   "AI&ML",
+   "AI&DS",
+   "COMP",
+   "IT",
+   "CSE-IoT",
+   "ECS",
+   "CSE-Cyber"
+  ],
+  "applicationUrl": "https://unstop.com/hackathons/navonmesh-26-a-national-level-hackathon-shri-shankaracharya-institute-of-professional-management-and-technolo-1748402",
+  "facultyRecommended": false
+ },
+ {
+  "title": "iNNOVA X 2K26 Global Online Hackathon",
+  "category": "Hackathon",
+  "organizer": "SVHET / Innovation Hacks",
+  "description": "Oct · Online\nDomain: Open Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Complete online prototype\nDeadline info (as listed): 30 Sep",
+  "registrationDeadline": "2026-09-30T23:59:00",
+  "deadlineRaw": "30 Sep",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": "Tech prizes + internship opportunity",
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://unstop.com/hackathons/innova-x-2k26-global-online-hackathon-shree-venkateshwara-hi-tech-engineering-college-1754160",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Build With Bharat 4.0",
+  "category": "Hackathon",
+  "organizer": "CodeVerse + KCC Institute",
+  "description": "10–11 Oct · Offline final\nDomain: AI/ML, Data, Web, Cyber, Cloud\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT\nStrategy focus: Problem → prototype → validation\nDeadline info (as listed): 1 Oct",
+  "registrationDeadline": "2026-10-01T23:59:00",
+  "deadlineRaw": "1 Oct",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT",
+  "prize": "₹1 lakh",
+  "themes": [
+   "AI",
+   "ML",
+   "Data",
+   "Web",
+   "Cyber",
+   "Cloud"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-Cyber",
+   "CSE-IoT"
+  ],
+  "applicationUrl": "https://unstop.com/hackathons/build-with-bharat-40-codeverse-1750139",
+  "facultyRecommended": false
+ },
+ {
+  "title": "Build for Bharat 2.0",
+  "category": "Hackathon",
+  "organizer": "CodeVerse / Chandigarh University",
+  "description": "7–8 Oct · Chandigarh / 36h\nDomain: AI/ML, Data, Software, Cyber, Cloud\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT\nStrategy focus: Multidisciplinary product\nDeadline info (as listed): 25 Sep",
+  "registrationDeadline": "2026-09-25T23:59:00",
+  "deadlineRaw": "25 Sep",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, CSE-Cyber, CSE-IoT",
+  "prize": "₹20.50 lakh+ total rewards",
+  "themes": [
+   "AI",
+   "ML",
+   "Data",
+   "Software",
+   "Cyber",
+   "Cloud"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "CSE-Cyber",
+   "CSE-IoT"
+  ],
+  "applicationUrl": "https://unstop.com/hackathons/build-for-bharat-20-chandigarh-university-cu-ajitgarh-punjab-1742848",
+  "facultyRecommended": false
+ },
+ {
+  "title": "HackNext'26 Series 2.0",
+  "category": "Hackathon",
+  "organizer": "SNS College of Technology",
+  "description": "8–9 Oct · Coimbatore / 24h\nDomain: Open Technology\nTCET relevant branches: COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber\nStrategy focus: Fast problem decomposition + demo\nDeadline info (as listed): 6 Oct",
+  "registrationDeadline": "2026-10-06T23:59:00",
+  "deadlineRaw": "6 Oct",
+  "eligibility": "COMP, IT, AI&ML, AI&DS, ECS, IoT, Cyber",
+  "prize": "₹20K + internship",
+  "themes": [
+   "Open Technology"
+  ],
+  "technologies": [
+   "COMP",
+   "IT",
+   "AI&ML",
+   "AI&DS",
+   "ECS",
+   "IoT",
+   "Cyber"
+  ],
+  "applicationUrl": "https://unstop.com/hackathons/hacknext-20-sns-college-of-technology-snsct-coimbatore-tamil-nadu-1752038",
+  "facultyRecommended": false
+ }
+]
