@@ -26,6 +26,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (action === 'publish') {
       const result = await publishCandidate(candidateId, user.id);
+      if (result.conflict) {
+        return errorRes('Publish blocked', [result.reason ?? 'Curated record conflict — resolve manually'], 409);
+      }
       return successRes(result, result.merged ? 'Candidate published (merged with existing event).' : 'Candidate published.');
     }
 

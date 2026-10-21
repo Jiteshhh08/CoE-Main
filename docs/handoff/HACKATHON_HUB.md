@@ -13,11 +13,10 @@ External hackathon discovery, verification, publishing, and student-facing brows
 7. [CSV / Google Sheet import](#7-csv--google-sheet-import)
 8. [API reference](#8-api-reference)
 9. [Automation and scheduling](#9-automation-and-scheduling)
-10. [Email notifications](#10-email-notifications)
-11. [Verification, confidence, and data-quality rules](#11-verification-confidence-and-data-quality-rules)
-12. [Deployment checklist](#12-deployment-checklist)
-13. [Troubleshooting](#13-troubleshooting)
-14. [File index](#14-file-index)
+10. [Verification, confidence, and data-quality rules](#10-verification-confidence-and-data-quality-rules)
+11. [Deployment checklist](#11-deployment-checklist)
+12. [Troubleshooting](#12-troubleshooting)
+13. [File index](#13-file-index)
 
 ---
 
@@ -60,7 +59,6 @@ graph TB
     subgraph "Monitor"
         HASH[Page re-hash]
         DIFF[Important-field diff]
-        REM[Closing-soon reminders]
     end
 
     subgraph "Faces"
@@ -79,7 +77,6 @@ graph TB
     NR --> PUB
     PUB --> OPP
     OPP --> HASH --> DIFF
-    OPP --> REM
     OPP --> HUBPAGE
     OPP --> ADMIN
 ```
@@ -169,18 +166,29 @@ Three layers, in order — missing stays `NULL`, never invented:
 
 1. **JSON-LD first**: `extractJsonLdEvent()` parses schema.org `Event` blocks (name, dates, organizer, city/state, attendance mode → `ONLINE`/`OFFLINE`/`HYBRID`, offer URL). Proven on indiahackathons event pages.
 2. **Rule heuristics**: `<title>`/og:title/h1, "organized by" patterns, date regexes (event-start phrasing preferred over publish dates), city near location keywords (Online events get no city — footer noise), prize only with a real amount, team ranges (inverted ranges nulled), eligibility only with a structured label.
-3. **Qwen fill-in** (`aiFill`): when `QWEN_API_KEY` is set, the model receives page text and fills *only* the still-missing mandatory fields, `null` when absent. Without a key the pipeline is rules-only.
+3. **Qwen fill-in** (`aiFill`): when `QWEN_API_KEY` + `AI_GATEWAY_URL` + `AI_GATEWAY_MODEL` are set, the model receives page text and fills *only* the still-missing mandatory fields. Without config the pipeline is rules-only (warns once per run).
 
-**Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field + source bonus (official/admin +0.2, platforms +0.1) + small extras, capped 0.95. ≥0.90 with all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing.
+**Never invented** (regression-tested in `hub-checks.ts`):
+- `registrationUrl` is either a genuine link (relative links resolved against the page) or `null`. The listing page is never substituted; the candidate keeps `url` as the source. Malformed/`javascript:` links are dropped, not repaired. AI echoes of the page URL are rejected.
+- `organiser` comes from JSON-LD or "hosted/presented by …" text only. A crawled hostname (`devfolio.co`) is never treated as the organiser.
+- `endDate` is only set from an explicit value or a genuinely later date found on the page. One date does not imply a one-day event.
+- Numeric dates: `13/04/2027` → 13 Apr, `04/13/2027` → 13 Apr, but `03/04/2027` is ambiguous and rejected. Written-month and ISO dates are validated against a real calendar (no `31 February`, leap-aware).
+- AI output: JSON `null`/`"null"`/`"undefined"`/`"N/A"`/`"none"`/`"-"`/blank are missing, dates must be valid ISO, and invalid values never overwrite rule/JSON-LD evidence.
+
+**Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field + source bonus (official/admin +0.2, platforms +0.1) + small extras, capped 0.95. ≥0.90 with all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing. A missing registration URL or organiser lowers the score and cannot reach auto-verify.
+
+**Cities** (`src/lib/hub/cities.ts`) are one registry used by both extraction and distance: name + aliases + coordinates. Adding a city in one place makes it recognisable *and* distance-capable; unknown cities stay `null` (no fabricated "N km").
 
 ### 4.3 Publish (`pipeline.ts`)
 
 Admin-only, explicit. Merges by registration/source URL, else normalized name + organizer. Missing fields become `NULL` (plus a visible "auto-published with missing fields" note); text clipped to column limits (`clipDbString`/`fitUrl` — the single DB-boundary guard against MySQL `P2000` errors); sets `APPROVED + ADMIN_VERIFIED + showInHub + pageHash`.
 
+**Curated-record protection** (same policy as CSV import): if the matched record is `VERIFIED`, `ADMIN_VERIFIED`, or `OFFICIAL_SOURCE`, publication does **not** overwrite it — the candidate moves to `NEEDS_UPDATE` with an actionable conflict message and the admin endpoint returns `409`. This applies even to an explicit publish click. For unverified pipeline-owned rows the refresh is null-safe (a thin re-extraction cannot erase fields it failed to find) and a placeholder description never replaces a real one. Dates pass through `toDbDate` (`src/lib/hub/dates.ts`), so an invalid/AI-sentinel date becomes `NULL` instead of an Invalid `Date`.
+
 ### 4.4 Monitor (`monitor.ts`)
 
-- **Change detection**: re-fetch each published source page, SHA-256 the normalized content; on drift, re-extract and diff important fields (deadline, prize, eligibility, team, venue, dates) → `NEEDS_UPDATE` + admin email. HTTP 404 → review + email; 403/empty → skipped silently.
-- **Closing-soon**: deadlines within 48h → bulk reminder emails to students who saved the event (deduped per day), then drains 50 queued emails.
+- **Bounded, rotating execution**: each invocation checks at most `HUB_MONITOR_BATCH` (default 10, max 50) approved events within `HUB_MONITOR_BUDGET_MS` (default 45 s), respecting `HUB_MONITOR_DELAY_MS` (default 400 ms) between fetches. Ordering is `lastVerifiedAt ASC, id ASC` — a durable rotating checkpoint with no extra state. Every completed attempt (including 403/empty) stamps `lastVerifiedAt`, so one permanently restricted page cannot starve the queue. The result reports `checked` / `deferred`; later runs continue where this one stopped. The cron route also refuses to start a monitor while one is in flight.
+- **Change detection**: re-fetch each published source page, SHA-256 the normalized content; on drift, re-extract and diff important fields (deadline, prize, eligibility, team, venue, dates) → `NEEDS_UPDATE` for admin review. HTTP 404 → `NEEDS_UPDATE`; 403/empty → attempt recorded. No emails are sent.
 
 ---
 
@@ -216,7 +224,7 @@ No Google OAuth needed: maintain a Sheet, use File → Share → **Publish to we
 
 **Optional (blank → NULL):** `description`, `eligibility`, `prize`, `applicationUrl`, `registrationDeadline`, `themes`/`domains`, `technologies`, `mode` (`ONLINE`/`OFFLINE`/`HYBRID`), `venue`, `city`, `state`, `startDate`, `endDate`, `teamMin`/`teamMax` (1–20), `sourceUrl`, `sourceType`. Header names are forgiving (`eventName`/`title`/`name`, `organiser`, `deadline`, `registrationUrl`/`applyLink`, `officialUrl`, `prizePool`, `domains`, `eventType`… — full map in `src/lib/hub/csv.ts`).
 
-**Semantics:** admin imports publish immediately (`APPROVED + ADMIN_VERIFIED + showInHub`); faculty imports land `PENDING`. Dedupe by source URL, then normalized name + organizer. **Conflict guard:** rows colliding with `VERIFIED`/`ADMIN_VERIFIED`/`OFFICIAL_SOURCE` records are rejected with a message, never overwritten. Every run writes a `HubImportLog`.
+**Semantics:** admin imports publish immediately (`APPROVED + ADMIN_VERIFIED + showInHub`); faculty imports land `PENDING`. Dedupe by source URL, then normalized name + organizer. **Dates must be real ISO dates** (`YYYY-MM-DD`, or an ISO timestamp); `N/A`, `-`, `null`, impossible calendar dates and ambiguous numeric forms are rejected per row with an actionable error — they can never reach Prisma as an Invalid `Date`. **Conflict guard (shared with pipeline publication):** rows colliding with `VERIFIED`/`ADMIN_VERIFIED`/`OFFICIAL_SOURCE` records are rejected and counted in `conflicts`, never overwritten. Updates to unverified rows are null-safe (blank cells do not erase existing values) and a blank/placeholder description never replaces a real one. Every run writes a `HubImportLog`.
 
 ---
 
@@ -226,7 +234,14 @@ Public:
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/hackathon-hub?search=&city=&mode=&domain=&month=YYYY-MM&regStatus=&eventStatus=&sort=` | Student listing (`APPROVED + showInHub`), derived `regStatus`/`eventStatus`, `regStatusSource`, `distanceKm`/`distanceLabel`, `myInterest` |
+| `GET /api/hackathon-hub?search=&city=&mode=&domain=&month=YYYY-MM&regStatus=&eventStatus=&sort=&limit=&cursor=` | Student listing (`APPROVED + showInHub`), derived `regStatus`/`eventStatus`, `regStatusSource`, `distanceKm`/`distanceLabel`, `myInterest`. Response: `{ items, nextCursor, hasMore }` |
+
+Public listing behaviour:
+
+- **Filter before limit.** `city`, `mode`, `month` (UTC range on `startDate`) and `search` are DB predicates. `domain` (themes/technologies) and the derived `regStatus`/`eventStatus` are applied while scanning the ordered result set — Prisma's MySQL JSON filters cannot match inside an array (verified empirically), so the endpoint keeps scanning 100-row pages until the requested page is full (hard cap 2000 rows/invocation). No filter is ever applied after truncation.
+- **Cursor pagination.** `limit` 1–50 (default 24); `cursor` is the last item id from the previous page. Ordering is `createdAt DESC, id DESC` (newest) or `registrationDeadline ASC, id ASC` (deadline), so pages are deterministic. Invalid cursors → `400`; stale cursors (row deleted) → `400`.
+- **Rate limit.** 60 requests/minute per client IP (`x-forwarded-for`/`x-real-ip`), `429` beyond that. Process-local, which matches the single-pm2-process deployment; move to shared storage if the app is horizontally scaled.
+- **Allowlist.** The select omits `createdById` and `pageHash`. `verificationStatus`/`sourceUrl`/`lastVerifiedAt` remain for the trust badge and source link.
 
 Admin (all `ADMIN`, 401/403 otherwise):
 
@@ -235,7 +250,7 @@ Admin (all `ADMIN`, 401/403 otherwise):
 | `GET /api/admin/hub/stats` | Dashboard rollup |
 | `GET /api/admin/hub/candidates?status=a,b` | Review queue (comma list; omit = all) |
 | `POST /api/admin/hub/candidates` `{url, source?, sourceType?, title?}` | Track a URL manually |
-| `PATCH /api/admin/hub/candidates/[id]` `{action: verify\|reject\|publish}` | Verify / reject / publish-and-promote |
+| `PATCH /api/admin/hub/candidates/[id]` `{action: verify\|reject\|publish}` | Verify / reject / publish-and-promote (`409` on curated-record conflict) |
 | `POST /api/admin/hub/import` `{csvText? , sheetUrl?}` | Bulk import |
 | `GET /api/admin/hub/import` | Recent import logs |
 | `GET /api/admin/hub/sources` · `PATCH … {key, enabled?, priority?}` | Registry management |
@@ -245,54 +260,50 @@ Automation (`CRON_SECRET` header/query **or** admin session):
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/cron/hub?job=discover\|extract\|monitor\|closing-soon\|all` | Pipeline stages (10-min/1-h repeat guards) |
+| `GET /api/cron/hub?job=discover\|extract\|monitor\|all` | Bounded pipeline slice (10-min extraction/discovery and 1-h monitor repeat guards; monitor refuses to overlap) |
+
+Note: a `200` means **this bounded slice completed**, not that the whole catalogue was processed. Monitor results include `checked` and `deferred`; the next scheduled run continues the rotation.
 
 ---
 
 ## 9. Automation and scheduling
 
 - **Code:** stages live in `src/lib/hub/`; the only entrypoint is `/api/cron/hub` (`src/app/api/cron/hub/route.ts`), following the repo's cron conventions (see `docs/handoff/CRON_JOBS.md`).
-- **Schedule** (`.github/workflows/hub-pipeline.yml`, self-hosted, `CRON_SECRET` secret, mirroring `monthly-grants.yml`): full `?job=all` daily 02:00 IST (`30 20 * * *` UTC); `?job=closing-soon` at the other three 6-hour slots; manual `workflow_dispatch` with job picker.
+- **Schedule** (`.github/workflows/hub-pipeline.yml`, self-hosted, `CRON_SECRET` secret, mirroring `monthly-grants.yml`): full `?job=all` daily 02:00 IST (`30 20 * * *` UTC); manual `workflow_dispatch` with job picker.
+- **Bounded work:** discovery walks a fixed source list, extraction takes 10 candidates, and monitoring takes a small batch inside a time budget. No stage runs unbounded inside one HTTP request; the workflow's final log line makes the "slice, not everything" contract explicit.
 - **Manual:** the dashboard's **Run pipeline now** button (admin session, no secret needed).
 
 ---
 
-## 10. Email notifications
-
-Via the existing queue (`dispatchEmail` → drained 50 at a time by each cron run). New senders in `src/lib/mailer.ts`:
-
-- `sendHubAdminAlert` (`HUB_ADMIN`, immediate): change detected, broken link, source conflict — links back to the admin panel, sent to `ADMIN_EMAIL`.
-- `sendHubClosingSoonReminder` (`HUB_CLOSING_SOON`, bulk, per-day dedupe keys): deadline ≤48h to students who saved the event.
-
-Note: SMTP OAuth vars must exist wherever mail should actually deliver; without them jobs queue (and retry) but nothing sends — check `/api/admin/emails`.
-
----
-
-## 11. Verification, confidence, and data-quality rules
+## 10. Verification, confidence, and data-quality rules
 
 - **No guessing:** missing is `NULL` in the DB; derived display values are labeled (`*`, tooltips, "Not published").
+- **No fabricated data:** registration URLs, organisers, and end dates are never inferred from the page URL, hostname, or a single date. Ambiguous numeric dates are dropped.
+- **Date safety:** every AI/CSV/publish path validates dates at the persistence boundary (`toDbDate`); invalid values become `NULL`, never an Invalid `Date`.
 - **Every published event has a source URL** (candidate URL carried through publish).
 - **Important-field changes require review** (`NEEDS_UPDATE`, never silent).
-- **Broken links trigger review** (404 → review + email).
+- **Broken links trigger review** (404 → `NEEDS_UPDATE`).
+- **Curated data wins:** `VERIFIED`/`ADMIN_VERIFIED`/`OFFICIAL_SOURCE` rows are never overwritten by pipeline publication or CSV import; conflicts are flagged (`409` / `conflicts` stat) for a human merge.
 - **Duplicates merge** (URL first, normalized name + organizer second; exact-match only — yearly editions never auto-fuse).
 - **Publish is always explicit** (admin click or admin import); the pipeline never auto-publishes.
 - **Column safety:** all writers clip to `VARCHAR(191)` (`clipDbString`/`fitUrl`); forms validate the same limits for clear 400s instead of `P2000` 500s.
 
 ---
 
-## 12. Deployment checklist
+## 11. Deployment checklist
 
 - [ ] Merge the Hub branch; deploy auto-runs `migrate deploy` — migrations are additive/nullable (`showInHub` backfills already-approved hackathon-like rows visible).
-- [ ] Env: `CRON_SECRET` (app + Actions secret), `ADMIN_EMAIL`, SMTP OAuth (`SMTP_USER`, `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN`), `FRONTEND_URL` (else email links say localhost), optional `QWEN_API_KEY` (rules-only extraction without it).
+- [ ] Env: `CRON_SECRET` (app + Actions secret), optional `QWEN_API_KEY` (rules-only extraction without it).
 - [ ] Enable the `hub-pipeline.yml` schedule (runs on the self-hosted runner like grants).
 - [ ] Seed content: publish the review queue + import a starter CSV so the Hub isn't empty.
 - [ ] Spot-check as student: only `APPROVED + showInHub` rows visible; admin-only routes 403 otherwise.
+- [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (66 checks; DB-backed ones create and delete uniquely-marked rows).
 
 **Known limits (by design, §42):** JS-rendered platform crawlers are parked at `MANUAL` (page fetches return app shells); auto-discovery's reliable legs are the indiahackathons sitemap + pasted URLs + CSV. Prize pools and registration deadlines are rarely published anywhere — rows surface in `NEEDS_REVIEW` missing only the deadline. No search-API provider, personalization, maps, or chatbot.
 
 ---
 
-## 13. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Cause → fix |
 |---|---|
@@ -307,17 +318,17 @@ Note: SMTP OAuth vars must exist wherever mail should actually deliver; without 
 
 ---
 
-## 14. File index
+## 13. File index
 
 | Area | Files |
 |---|---|
-| Pipeline lib | `src/lib/hub/sources.ts`, `discovery.ts`, `extract.ts`, `csv.ts`, `pipeline.ts`, `monitor.ts` |
-| Shared helpers | `src/lib/hackathon-hub.ts` (statuses, `isHubCategory`, `clipDbString`, `fitUrl`, source/verification enums) |
+| Pipeline lib | `src/lib/hub/sources.ts`, `discovery.ts`, `extract.ts`, `csv.ts`, `pipeline.ts`, `monitor.ts`, `fetch-guard.ts` |
+| Shared Hub logic | `src/lib/hub/cities.ts` (single city/coordinate registry), `src/lib/hub/dates.ts` (sentinel/ISO/ambiguous-date validation), `src/lib/hackathon-hub.ts` (statuses, `isHubCategory`, `clipDbString`, `fitUrl`, source/verification enums) |
+| Checks | `scripts/checks/hub-checks.ts` (pure regressions + DB integration for all review issues) |
 | Student UI | `src/app/innovation/hackathon-hub/page.tsx`, `src/app/api/hackathon-hub/route.ts` |
 | Admin UI | `src/app/admin/hackathons-content/page.tsx` (Dashboard, Queue, Import, Sources) |
 | Admin APIs | `src/app/api/admin/hub/{import,candidates,candidates/[id],sources,stats}/route.ts`, `src/app/api/admin/opportunities/[id]/route.ts` (+`showInHub`) |
 | Cron + schedule | `src/app/api/cron/hub/route.ts`, `.github/workflows/hub-pipeline.yml` |
-| Mail | `sendHubAdminAlert`, `sendHubClosingSoonReminder` in `src/lib/mailer.ts` |
 | Schema | `Opportunity` (+12 Hub columns), `HubSource`, `HubCandidate`, `HubImportLog` in `prisma/schema.prisma` |
 | Nav | Hub button in `src/app/innovation/page.tsx`; `Hackathons Content` in `src/components/Navbar.tsx` + Admin Content tab |
 | Validators | Hub enums, dates, teams, 191-char caps in `src/lib/validators.ts` |

@@ -1,67 +1,92 @@
 import prisma from '@/lib/prisma';
-import { processEmailQueue } from '@/lib/email-delivery';
-import { sendHubAdminAlert, sendHubClosingSoonReminder } from '@/lib/mailer';
 import { normalizeContent, sha256 } from './discovery';
 import { extractFromHtml } from './extract';
 import { IMPORTANT_FIELDS, diffImportant } from './pipeline';
 import { fetchPublicText } from './fetch-guard';
 
-const appBaseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+const clamp = (value: number, min: number, max: number) =>
+  Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : min;
 
-async function fetchText(url: string, timeoutMs = 12000): Promise<{ status: number; html: string }> {
+const numEnv = (name: string, fallback: number) => {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+// Bounded monitor knobs. The old loop walked up to 200 events with an 800 ms
+// sleep between each, so a single HTTP request could run for minutes. Each
+// invocation now handles a small batch and rotates via lastVerifiedAt.
+const DEFAULT_BATCH = clamp(numEnv('HUB_MONITOR_BATCH', 10), 1, 50);
+const DEFAULT_BUDGET_MS = clamp(numEnv('HUB_MONITOR_BUDGET_MS', 45_000), 0, 120_000);
+const POLITENESS_DELAY_MS = clamp(numEnv('HUB_MONITOR_DELAY_MS', 400), 0, 5_000);
+
+async function fetchText(url: string, timeoutMs = 12_000): Promise<{ status: number; html: string }> {
   // SSRF-guarded (DNS allowlist + landing re-check); non-2xx yields empty
   // body so 404/403 handling below keeps working.
   const { status, text } = await fetchPublicText(url, { timeoutMs, contentTypes: ['html', 'text'] });
   return { status, html: text };
 }
 
-async function notifyAdmin(kind: string, title: string, detail: string, dedupe: string) {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) return;
-  try {
-    await sendHubAdminAlert(adminEmail, {
-      kind, title, detail,
-      link: `${appBaseUrl}/admin/hackathons-content`,
-    });
-    void dedupe;
-  } catch (err) {
-    console.error(`Hub admin notify failed (${kind}):`, err);
-  }
-}
+export type MonitorResult = {
+  checked: number;
+  changed: number;
+  broken: number;
+  /** Approved events not checked by this invocation (picked up next run). */
+  deferred: number;
+  batch: number;
+  errors: string[];
+};
 
-// Change detection (§21–22) + broken-link review (§41.4).
-export async function runMonitor() {
-  const out = { checked: 0, changed: 0, broken: 0, errors: [] as string[] };
+// Change detection (Â§21â€“22) + broken-link review (Â§41.4), bounded.
+// Rotation checkpoint is `lastVerifiedAt` (oldest first), so consecutive
+// invocations cover the whole catalogue without extra state. Every completed
+// attempt stamps it â€” including 403/empty pages, otherwise a permanently
+// restricted page would sit at the head of the queue forever.
+export async function runMonitor(opts: { limit?: number; budgetMs?: number } = {}): Promise<MonitorResult> {
+  const limit = clamp(opts.limit ?? DEFAULT_BATCH, 1, 50);
+  const budgetMs = clamp(opts.budgetMs ?? DEFAULT_BUDGET_MS, 0, 120_000);
+  const startedAt = Date.now();
+  const out: MonitorResult = { checked: 0, changed: 0, broken: 0, deferred: 0, batch: limit, errors: [] };
+
+  const totalApproved = await prisma.opportunity.count({ where: { status: 'APPROVED' } });
   const rows = await prisma.opportunity.findMany({
     where: { status: 'APPROVED' },
+    orderBy: [{ lastVerifiedAt: 'asc' }, { id: 'asc' }],
     select: {
       id: true, title: true, sourceUrl: true, applicationUrl: true, pageHash: true,
       registrationDeadline: true, prize: true, eligibility: true, teamMin: true, teamMax: true,
       venue: true, startDate: true, endDate: true,
     },
-    take: 200,
+    take: limit,
   });
 
   for (const opp of rows) {
+    if (Date.now() - startedAt > budgetMs) break;
     const watchUrl = opp.sourceUrl || opp.applicationUrl;
     if (!watchUrl) continue;
     out.checked++;
     try {
       const { status, html } = await fetchText(watchUrl);
+      const checkedAt = new Date();
       if (status === 404) {
         out.broken++;
         await prisma.opportunity.update({
           where: { id: opp.id },
-          data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: new Date() },
+          data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: checkedAt },
         });
-        await notifyAdmin('Broken registration link', opp.title, `Source page is unavailable (HTTP 404): ${watchUrl}`, `hub-broken-${opp.id}`);
         continue;
       }
-      if (status === 403 || !html) continue; // restricted/unavailable (§19) — log only
+      if (status === 403 || !html) {
+        // Restricted/unavailable (Â§19) â€” record the attempt so rotation advances.
+        await prisma.opportunity.update({ where: { id: opp.id }, data: { lastVerifiedAt: checkedAt } });
+        continue;
+      }
       const hash = sha256(normalizeContent(html));
-      if (opp.pageHash && hash === opp.pageHash) continue;
+      if (opp.pageHash && hash === opp.pageHash) {
+        await prisma.opportunity.update({ where: { id: opp.id }, data: { lastVerifiedAt: checkedAt } });
+        continue;
+      }
       if (!opp.pageHash) {
-        await prisma.opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
+        await prisma.opportunity.update({ where: { id: opp.id }, data: { pageHash: hash, lastVerifiedAt: checkedAt } });
         continue;
       }
       const fresh = extractFromHtml(html, watchUrl, opp.title);
@@ -77,67 +102,24 @@ export async function runMonitor() {
           endDate: fresh.endDate ? new Date(fresh.endDate) : null,
         },
       );
-      await prisma.opportunity.update({ where: { id: opp.id }, data: { pageHash: hash } });
+      await prisma.opportunity.update({
+        where: { id: opp.id },
+        data: { pageHash: hash, lastVerifiedAt: checkedAt },
+      });
       const important = diffs.filter((d) => (IMPORTANT_FIELDS as readonly string[]).includes(d.field));
       if (important.length > 0) {
         out.changed++;
         await prisma.opportunity.update({
           where: { id: opp.id },
-          data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: new Date() },
+          data: { verificationStatus: 'NEEDS_UPDATE', lastVerifiedAt: checkedAt },
         });
-        const summary = important.map((d) => `${d.field}: ${JSON.stringify(d.from)} → ${JSON.stringify(d.to)}`).join('; ');
-        await notifyAdmin('Event change detected', opp.title, `CHANGE DETECTED — ${summary}`, `hub-change-${opp.id}`);
       }
     } catch (err) {
       out.errors.push(`Opportunity ${opp.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
-    await new Promise((r) => setTimeout(r, 800));
+    if (POLITENESS_DELAY_MS > 0) await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
   }
-  return out;
-}
 
-// Closing-soon check (§33, every 6h): remind students who saved the event.
-export async function runClosingSoon() {
-  const out = { events: 0, reminded: 0, errors: [] as string[] };
-  const now = new Date();
-  const horizon = new Date(now.getTime() + 2 * 86_400_000);
-  const rows = await prisma.opportunity.findMany({
-    where: { status: 'APPROVED', registrationDeadline: { gt: now, lte: horizon } },
-    select: { id: true, title: true, registrationDeadline: true, applicationUrl: true },
-    take: 100,
-  });
-
-  for (const opp of rows) {
-    try {
-      const interests = await prisma.opportunityInterest.findMany({
-        where: { opportunityId: opp.id },
-        include: { user: { select: { email: true, status: true } } },
-        take: 500,
-      });
-      const emails = Array.from(
-        new Set(
-          interests
-            .map((i) => i.user)
-            .filter((u) => u.status === 'ACTIVE')
-            .map((u) => u.email),
-        ),
-      );
-      if (emails.length === 0) continue;
-      out.events++;
-      const day = now.toISOString().slice(0, 10);
-      for (const email of emails) {
-        await sendHubClosingSoonReminder(email, {
-          eventTitle: opp.title,
-          deadline: (opp.registrationDeadline ?? now).toISOString(),
-          applyUrl: opp.applicationUrl,
-          dedupeKey: `hub-closing-${opp.id}-${day}-${email}`,
-        });
-        out.reminded++;
-      }
-    } catch (err) {
-      out.errors.push(`Opportunity ${opp.id}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-  try { await processEmailQueue(50); } catch (err) { console.error('Hub closing-soon queue drain failed:', err); }
+  out.deferred = Math.max(0, totalApproved - out.checked);
   return out;
 }

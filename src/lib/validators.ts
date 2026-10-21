@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HACKATHON_RUBRIC_WEIGHTS } from './hackathon-scoring';
+import { isSentinel, normalizeIsoDate } from './hub/dates';
 
 // Accepts both UID shapes: fused "24-COMPD13-28" and separate "23-CSE-A-05".
 const tcetUidSchema = z
@@ -632,9 +633,12 @@ export function isValidDepartment(value: string): value is Department {
 
 // ─── External Opportunities & Learning Hub Validators ───
 
+// Dates cross an untrusted boundary here (admin CSV/forms): reject sentinels
+// ("N/A", "-") and impossible calendar dates instead of letting `new Date`
+// roll them over or hand Prisma an Invalid Date.
 const hubDateSchema = z
   .string()
-  .refine((d) => !isNaN(Date.parse(d)), 'Invalid date')
+  .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid date — use YYYY-MM-DD')
   .optional()
   .or(z.literal(''));
 
@@ -699,7 +703,7 @@ export const opportunityCreateSchema = z.object({
   applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
-    .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
+    .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid registrationDeadline - use YYYY-MM-DD')
     .optional()
     .or(z.literal('')),
   themes: z.array(z.string().trim().min(1)).optional(),
@@ -732,7 +736,7 @@ export const opportunityUpdateSchema = z.object({
   applicationUrl: hubUrlSchema,
   registrationDeadline: z
     .string()
-    .refine((d) => !isNaN(Date.parse(d)), 'Invalid registrationDeadline')
+    .refine((d) => d === '' || (!isSentinel(d) && normalizeIsoDate(d) !== null), 'Invalid registrationDeadline - use YYYY-MM-DD')
     .optional()
     .or(z.literal('')),
   themes: z.array(z.string().trim().min(1)).optional(),

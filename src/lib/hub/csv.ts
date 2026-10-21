@@ -1,6 +1,8 @@
 import prisma from '@/lib/prisma';
 import { opportunityCreateSchema } from '@/lib/validators';
 import { normalizeName, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { toDbDate } from './dates';
+import { isCuratedVerification, isPlaceholderDescription } from './pipeline';
 import { fetchPublicText } from './fetch-guard';
 
 // Google Sheet as lightweight CMS (§24): admins paste a Sheet CSV-export URL
@@ -79,6 +81,7 @@ export type HubImportResult = {
   inserted: number;
   updated: number;
   rejected: number;
+  conflicts: number;
   published: number;
   errors: string[];
 };
@@ -87,7 +90,7 @@ export async function runCsvImport(
   csvText: string,
   opts: { actorId: number; actorRole: string; origin: 'CSV' | 'SHEET_URL' },
 ): Promise<HubImportResult> {
-  const result: HubImportResult = { total: 0, inserted: 0, updated: 0, rejected: 0, published: 0, errors: [] };
+  const result: HubImportResult = { total: 0, inserted: 0, updated: 0, rejected: 0, conflicts: 0, published: 0, errors: [] };
   const rows = parseCsv(csvText);
   result.total = rows.length;
   const autoApprove = opts.actorRole === 'ADMIN';
@@ -104,18 +107,18 @@ export async function runCsvImport(
       const data = parsed.data;
 
       // Duplicate detection (§16): source URL first, then normalized name+organizer+start.
-      let existing: { id: number; verificationStatus: string; sourceType: string } | null = null;
+      let existing: { id: number; verificationStatus: string; sourceType: string; description: string | null } | null = null;
       if (data.sourceUrl) {
         existing = await prisma.opportunity.findFirst({ where: { sourceUrl: data.sourceUrl } });
       }
       if (!existing) {
         const rivals = await prisma.opportunity.findMany({
           where: { organizer: data.organizer },
-          select: { id: true, title: true, verificationStatus: true, sourceType: true, startDate: true },
+          select: { id: true, title: true, verificationStatus: true, sourceType: true, description: true, startDate: true },
           take: 50,
         });
         const needle = normalizeName(data.title);
-        existing = rivals.find((r: { title: string }) => normalizeName(r.title) === needle) ?? null;
+        existing = rivals.find((r) => normalizeName(r.title) === needle) ?? null;
       }
 
       const record = {
@@ -123,7 +126,9 @@ export async function runCsvImport(
         category: clipDbString(data.category) as string,
         organizer: clipDbString(data.organizer) as string,
         description: data.description || null,
-        registrationDeadline: data.registrationDeadline ? new Date(data.registrationDeadline) : null,
+        // Persistence boundary: invalid/sentinel dates become NULL rather
+        // than an Invalid Date that Prisma would throw on.
+        registrationDeadline: toDbDate(data.registrationDeadline),
         eligibility: clipDbString(data.eligibility),
         prize: clipDbString(data.prize),
         themes: data.themes?.length ? data.themes : undefined,
@@ -134,8 +139,8 @@ export async function runCsvImport(
         venue: clipDbString((data as { venue?: string }).venue),
         city: clipDbString((data as { city?: string }).city),
         state: clipDbString((data as { state?: string }).state),
-        startDate: (data as { startDate?: string }).startDate ? new Date((data as { startDate?: string }).startDate as string) : null,
-        endDate: (data as { endDate?: string }).endDate ? new Date((data as { endDate?: string }).endDate as string) : null,
+        startDate: toDbDate((data as { startDate?: string }).startDate),
+        endDate: toDbDate((data as { endDate?: string }).endDate),
         teamMin: (data as { teamMin?: number }).teamMin ?? null,
         teamMax: (data as { teamMax?: number }).teamMax ?? null,
         sourceUrl: (data.sourceUrl || null) as string | null,
@@ -157,13 +162,23 @@ export async function runCsvImport(
         result.inserted++;
         if (autoApprove) result.published++;
       } else {
-        // Conflict guard (§31): never blindly overwrite verified rows from sheet data.
-        if (['VERIFIED', 'ADMIN_VERIFIED', 'OFFICIAL_SOURCE'].includes(existing.verificationStatus)) {
+        // Conflict guard (§31), same policy as pipeline publication: a curated
+        // row is never overwritten by lower-confidence import data.
+        if (isCuratedVerification(existing.verificationStatus)) {
           result.rejected++;
-          result.errors.push(`Row ${rowNo}: conflicts with verified record #${existing.id} — flagged, not overwritten`);
+          result.conflicts++;
+          result.errors.push(`Row ${rowNo}: conflicts with curated record #${existing.id} (${existing.verificationStatus}) — flagged, not overwritten`);
           continue;
         }
-        await prisma.opportunity.update({ where: { id: existing.id }, data: record });
+        // Null-safe merge: blank cells must not erase data the sheet omitted.
+        const update: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(record)) {
+          if (value !== null && value !== undefined) update[key] = value;
+        }
+        if (isPlaceholderDescription(record.description) && existing.description && !isPlaceholderDescription(existing.description)) {
+          update.description = existing.description;
+        }
+        await prisma.opportunity.update({ where: { id: existing.id }, data: update });
         result.updated++;
       }
     } catch (err) {

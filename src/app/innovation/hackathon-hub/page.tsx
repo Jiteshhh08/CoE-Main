@@ -5,6 +5,12 @@ import Link from 'next/link';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
 
+type HubPage = {
+  items: HubOpportunity[];
+  nextCursor: number | null;
+  hasMore: boolean;
+};
+
 type HubOpportunity = {
   id: number;
   title: string;
@@ -64,6 +70,9 @@ const daysUntil = (iso: string | null): number | null => {
 export default function HackathonHubPage() {
   const [rows, setRows] = useState<HubOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<HubOpportunity | null>(null);
 
@@ -75,27 +84,54 @@ export default function HackathonHubPage() {
   const [month, setMonth] = useState('');
   const [sort, setSort] = useState<'newest' | 'deadline'>('newest');
 
+  const buildParams = (cursor?: number | null) => {
+    const params = new URLSearchParams();
+    if (search.trim()) params.set('search', search.trim());
+    if (city) params.set('city', city);
+    if (mode) params.set('mode', mode);
+    if (domain.trim()) params.set('domain', domain.trim());
+    if (month) params.set('month', month);
+    if (regStatus) params.set('regStatus', regStatus);
+    params.set('sort', sort);
+    if (cursor) params.set('cursor', String(cursor));
+    return params.toString();
+  };
+
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
-      if (search.trim()) params.set('search', search.trim());
-      if (city) params.set('city', city);
-      if (mode) params.set('mode', mode);
-      if (domain.trim()) params.set('domain', domain.trim());
-      if (month) params.set('month', month);
-      if (regStatus) params.set('regStatus', regStatus);
-      params.set('sort', sort);
-      const query = params.toString();
+      const query = buildParams();
       const res = await fetch(`/api/hackathon-hub${query ? `?${query}` : ''}`, { credentials: 'include' });
-      const json = (await res.json()) as ApiResponse<HubOpportunity[]>;
-      if (!json.success) throw new Error(json.message || 'Failed to load hackathons.');
-      setRows(json.data ?? []);
+      const json = (await res.json()) as ApiResponse<HubPage>;
+      if (!json.success || !json.data) throw new Error(json.message || 'Failed to load hackathons.');
+      setRows(json.data.items);
+      setNextCursor(json.data.nextCursor);
+      setHasMore(json.data.hasMore);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load hackathons.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError('');
+    try {
+      const query = buildParams(nextCursor);
+      const res = await fetch(`/api/hackathon-hub?${query}`, { credentials: 'include' });
+      const json = (await res.json()) as ApiResponse<HubPage>;
+      const data = json.data;
+      if (!json.success || !data) throw new Error(json.message || 'Failed to load more hackathons.');
+      setRows((prev) => [...prev, ...data.items]);
+      setNextCursor(data.nextCursor);
+      setHasMore(data.hasMore);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more hackathons.');
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -297,6 +333,18 @@ export default function HackathonHubPage() {
           })}
         </div>
       )}
+
+      {!loading && rows.length > 0 && hasMore ? (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="border border-[#002155] px-6 py-3 text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white disabled:opacity-50"
+          >
+            {loadingMore ? 'Loading…' : 'Load more events'}
+          </button>
+        </div>
+      ) : null}
 
       {selected ? (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-4" onClick={() => setSelected(null)}>

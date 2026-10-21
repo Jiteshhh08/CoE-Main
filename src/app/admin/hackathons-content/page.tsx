@@ -98,7 +98,7 @@ export default function HackathonsContentPage() {
         return '';
       };
       setPipelineResult(
-        `Discovery [${fmt(d.discovery)}] · Extraction [${fmt(d.extraction)}] · Monitor [${fmt(d.monitor)}] · Closing-soon [${fmt(d.closingSoon)}]`
+        `Discovery [${fmt(d.discovery)}] · Extraction [${fmt(d.extraction)}] · Monitor [${fmt(d.monitor)}]`
       );
       void loadHub();
     } catch (err) {
@@ -507,7 +507,7 @@ export default function HackathonsContentPage() {
               <button
                 onClick={() => void runPipeline()}
                 disabled={pipelineRunning}
-                title="Run discovery → extraction → monitor → closing-soon now"
+                title="Run discovery → extraction → monitor now"
                 className="bg-[#8c4f00] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-60"
               >
                 {pipelineRunning ? 'Running…' : 'Run pipeline now'}
@@ -515,7 +515,7 @@ export default function HackathonsContentPage() {
             </div>
           </div>
           <p className="mt-1 text-xs text-[#747782]">
-            Automated schedule: full pipeline daily 02:00 AM IST, closing-soon reminders every 6h (GitHub Actions `hub-pipeline.yml`).
+            Automated schedule: full pipeline daily 02:00 AM IST (GitHub Actions `hub-pipeline.yml`).
           </p>
           {hubStats ? (
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">

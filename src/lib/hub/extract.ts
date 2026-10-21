@@ -1,6 +1,14 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256 } from './discovery';
 import { fetchPublicText } from './fetch-guard';
+import { HUB_CITIES, findHubCityInText } from './cities';
+import {
+  coerceDateRange,
+  isSentinel,
+  isValidCalendarDate,
+  normalizeIsoDate,
+  parseNumericDate,
+} from './dates';
 import type { HubCandidateStatus } from './pipeline';
 
 // Structured extraction (§14). Rule-based first; Qwen AI pass only fills
@@ -23,15 +31,13 @@ export type ExtractedEvent = {
   eligibility: string | null;
 };
 
-const MONTHS: Record<string, string> = {
-  january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
-  july: '07', august: '08', september: '09', october: '10', november: '11', december: '12',
+const MONTH_INDEX: Record<string, number> = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
 };
 
-const KNOWN_CITIES = [
-  'Mumbai', 'Navi Mumbai', 'Thane', 'Pune', 'Nagpur', 'Nashik',
-  'Chhatrapati Sambhajinagar', 'Kolhapur', 'Delhi', 'Bengaluru', 'Hyderabad', 'Chennai',
-];
+const isoOf = (y: number, m: number, d: number) =>
+  `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
 const DOMAIN_KEYWORDS: Record<string, RegExp> = {
   AI: /\b(ai|artificial intelligence|machine learning|\bml\b|genai|llm)\b/i,
@@ -42,20 +48,33 @@ const DOMAIN_KEYWORDS: Record<string, RegExp> = {
   Web: /\bweb dev|react|frontend|full.?stack\b/i,
 };
 
+// Dates from free text. Written-month and ISO forms are unambiguous; numeric
+// d/m/y-vs-m/d/y forms are only accepted when one component proves the order
+// (see parseNumericDate). 03/04/2027 stays unknown — a confidently wrong
+// date corrupts closing-soon status and event status.
 function findDates(text: string): string[] {
   const found: string[] = [];
-  const push = (y: string, m: string, d: string) => {
-    const iso = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-    if (!Number.isNaN(Date.parse(iso)) && !found.includes(iso)) found.push(iso);
+  const add = (iso: string | null) => {
+    if (iso && !found.includes(iso)) found.push(iso);
+  };
+  const pushWritten = (day: string, monthName: string, year: string) => {
+    const month = MONTH_INDEX[monthName.toLowerCase()];
+    const d = Number(day);
+    const y = Number(year);
+    if (month && isValidCalendarDate(y, month, d)) add(isoOf(y, month, d));
   };
   for (const m of text.matchAll(/(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/gi)) {
-    push(m[3], MONTHS[m[2].toLowerCase()], m[1]);
+    pushWritten(m[1], m[2], m[3]);
   }
   for (const m of text.matchAll(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/gi)) {
-    push(m[3], MONTHS[m[1].toLowerCase()], m[2]);
+    pushWritten(m[2], m[1], m[3]);
   }
-  for (const m of text.matchAll(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/g)) {
-    push(m[3], m[2], m[1]);
+  for (const m of text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (isValidCalendarDate(y, mo, d)) add(isoOf(y, mo, d));
+  }
+  for (const m of text.matchAll(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/g)) {
+    add(parseNumericDate(m[1], m[2], m[3]));
   }
   return found.slice(0, 6);
 }
@@ -77,7 +96,36 @@ type JsonLdEvent = {
   offers?: Array<{ url?: string }>;
 };
 
-export function extractJsonLdEvent(html: string): Partial<ExtractedEvent> {
+/**
+ * Registration-link resolver. A page's own URL is NOT a registration form —
+ * when no genuine link is present the answer is null, never `pageUrl`.
+ * Malformed/unsupported-scheme links are rejected, not "repaired".
+ */
+export function resolveRegistrationUrl(raw: unknown, pageUrl: string): string | null {
+  if (typeof raw !== 'string' || isSentinel(raw)) return null;
+  const value = raw.trim();
+  if (!value || value.length > 512) return null;
+  try {
+    const u = new URL(value, pageUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+const stripHash = (value: string): string => {
+  try {
+    const u = new URL(value);
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return value;
+  }
+};
+
+export function extractJsonLdEvent(html: string, pageUrl = ''): Partial<ExtractedEvent> {
   const out: Partial<ExtractedEvent> = {};
   const blocks = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
   for (const block of blocks) {
@@ -98,12 +146,10 @@ export function extractJsonLdEvent(html: string): Partial<ExtractedEvent> {
       const ev = node as Partial<JsonLdEvent> & { '@type'?: string };
       if (!ev || ev['@type'] !== 'Event') continue;
       if (typeof ev.name === 'string' && ev.name.trim()) out.eventName = ev.name.trim().slice(0, 200);
-      if (typeof ev.startDate === 'string' && !Number.isNaN(Date.parse(ev.startDate))) {
-        out.startDate = new Date(ev.startDate).toISOString().slice(0, 10);
-      }
-      if (typeof ev.endDate === 'string' && !Number.isNaN(Date.parse(ev.endDate))) {
-        out.endDate = new Date(ev.endDate).toISOString().slice(0, 10);
-      }
+      const start = normalizeIsoDate(ev.startDate);
+      if (start) out.startDate = start;
+      const end = normalizeIsoDate(ev.endDate);
+      if (end) out.endDate = end;
       if (ev.organizer && typeof ev.organizer.name === 'string' && ev.organizer.name.trim()) {
         out.organiser = ev.organizer.name.trim().slice(0, 200);
       }
@@ -116,8 +162,8 @@ export function extractJsonLdEvent(html: string): Partial<ExtractedEvent> {
           : m.includes('online') ? 'ONLINE'
           : m.includes('offline') ? 'OFFLINE' : undefined;
       }
-      const offerUrl = ev.offers?.[0]?.url;
-      if (typeof offerUrl === 'string' && /^https:\/\//.test(offerUrl)) out.registrationUrl = offerUrl.slice(0, 512);
+      const offer = resolveRegistrationUrl(ev.offers?.[0]?.url, pageUrl);
+      if (offer) out.registrationUrl = offer;
       // ponytail: offers[].price is the entry FEE, not the prize pool — never
       // map it to prizePool. Prize pools are absent on most listing sites.
       return out;
@@ -128,7 +174,7 @@ export function extractJsonLdEvent(html: string): Partial<ExtractedEvent> {
 
 export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: string | null): ExtractedEvent {
   const text = textOf(html);
-  const structured = extractJsonLdEvent(html);
+  const structured = extractJsonLdEvent(html, pageUrl);
   const pick = <T>(structuredValue: T | undefined, heuristic: T): T =>
     (structuredValue ?? null) !== null && structuredValue !== undefined ? structuredValue as T : heuristic;
   const titleMatch = html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i)
@@ -137,11 +183,10 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
   const eventName = (titleMatch?.[1] ?? h1?.[1] ?? fallbackTitle ?? null)
     ?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || null;
 
+  // Organiser must be evidence-backed ("hosted by X", JSON-LD organizer).
+  // The crawled host is a platform (devfolio.co), never the event's organiser.
   const orgMatch = text.match(/(?:organised|organized|presented|hosted|powered)\s+by\s+([a-z0-9&.,'() ]{3,80})/i);
-  let organiser: string | null = orgMatch?.[1]?.trim().replace(/\s+/g, ' ') ?? null;
-  if (!organiser) {
-    try { organiser = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch { organiser = null; }
-  }
+  const organiser: string | null = orgMatch?.[1]?.trim().replace(/\s+/g, ' ') ?? null;
 
   // Dates: prefer ones near event-start phrasing — the first date on a page is
   // often a publish date, not the event date.
@@ -158,14 +203,16 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
     : /\bvenue\b|\bcampus\b|\baudit(orium)?\b/.test(lower) ? 'OFFLINE' : null;
 
   // City: prefer mentions near location keywords (footers name-drop popular
-  // cities); fall back to any page mention.
+  // cities); fall back to any page mention. Registry comes from cities.ts so
+  // "recognisable" and "distance-computable" can never drift apart.
   const cityNearLocation = (city: string): boolean => {
-    const re = new RegExp(`(?:where|venue|location|city|address)[^.\\n]{0,120}${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^.\\n]{0,80}(?:venue|location|address)`, 'i');
+    const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:where|venue|location|city|address)[^.\\n]{0,120}${escaped}|${escaped}[^.\\n]{0,80}(?:venue|location|address)`, 'i');
     return re.test(text);
   };
   const heuristicCity =
-    KNOWN_CITIES.find((c) => cityNearLocation(c)) ??
-    KNOWN_CITIES.find((c) => lower.includes(c.toLowerCase())) ??
+    HUB_CITIES.find((c) => cityNearLocation(c.name))?.name ??
+    findHubCityInText(text)?.name ??
     null;
   const mode = pick(structured.mode, heuristicMode);
   // Online events have no meaningful city — a heuristic match is footer noise.
@@ -194,13 +241,16 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
   const eligMatch = text.match(/eligib\w*[^.\n:]{0,10}[:\-–]\s*([^.\n]{10,250})/i);
   const eligibility = (eligMatch?.[1] ?? '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 191) || null;
 
-  let registrationUrl: string | null = null;
+  // Registration link: genuine anchor evidence only. When the page has none,
+  // registrationUrl stays null — the listing page is not a signup form.
   const regLink = html.match(/<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]{0,80}?(?:register|apply now|sign up)[\s\S]{0,40}?)<\/a>/i);
-  if (regLink) {
-    try { registrationUrl = new URL(regLink[1], pageUrl).toString().split('#')[0]; } catch { registrationUrl = pageUrl; }
-  } else {
-    registrationUrl = pageUrl;
-  }
+  const registrationUrl = regLink ? resolveRegistrationUrl(regLink[1], pageUrl) : null;
+
+  // Start/end: an end date exists only when it was stated or a genuinely
+  // later date was found. A single date is not a single-day event.
+  const startDate = structured.startDate ?? dates[0] ?? null;
+  const inferredEnd = startDate ? dates.find((d) => d > startDate) ?? null : null;
+  const { startDate: safeStart, endDate: safeEnd } = coerceDateRange(startDate, structured.endDate ?? inferredEnd);
 
   return {
     eventName: pick(structured.eventName, eventName),
@@ -209,8 +259,8 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
     city,
     state: structured.state ?? null,
     venue,
-    startDate: structured.startDate ?? dates[0] ?? null,
-    endDate: structured.endDate ?? dates[1] ?? dates[0] ?? null,
+    startDate: safeStart,
+    endDate: safeEnd,
     registrationDeadline,
     registrationUrl: pick(structured.registrationUrl, registrationUrl),
     teamMin: teamMin && teamMin >= 1 && teamMin <= 20 ? teamMin : null,
@@ -242,7 +292,17 @@ export function mandatoryMissing(e: ExtractedEvent): string[] {
   return missing;
 }
 
-async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedEvent> {
+const AI_TEXT_FIELDS = ['eventName', 'organiser', 'city', 'venue', 'state', 'prizePool', 'eligibility'] as const;
+const AI_DATE_FIELDS = ['startDate', 'endDate', 'registrationDeadline'] as const;
+
+/** Trim a model-provided string; sentinels/empties are "no value", not data. */
+function aiText(value: unknown, max = 200): string | null {
+  if (typeof value !== 'string' || isSentinel(value)) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : null;
+}
+
+async function aiFill(html: string, current: ExtractedEvent, pageUrl: string): Promise<ExtractedEvent> {
   const apiKey = process.env.QWEN_API_KEY?.trim();
   // No hardcoded gateway: URL + model come from env like grants-automation.
   // Unlike grants (which fails loudly), Hub degrades to rules-only extraction
@@ -264,7 +324,7 @@ async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedE
         model: gatewayModel,
         messages: [{
           role: 'user',
-          content: `Extract hackathon fields from the page text below. Return ONLY JSON with keys: eventName, organiser, mode (ONLINE|OFFLINE|HYBRID|null), city, venue, startDate (YYYY-MM-DD|null), endDate, registrationDeadline, teamMin (int|null), teamMax, prizePool, eligibility. Only fill these missing fields: ${missing.join(', ')}. NEVER invent: use null when absent.\n\nPAGE:\n${snippet}`,
+          content: `Extract hackathon fields from the page text below. Return ONLY JSON with keys: eventName, organiser, mode (ONLINE|OFFLINE|HYBRID|null), city, venue, startDate (YYYY-MM-DD|null), endDate, registrationDeadline, registrationUrl, teamMin (int|null), teamMax, prizePool, eligibility. Only fill these missing fields: ${missing.join(', ')}. NEVER invent: use null when absent.\n\nPAGE:\n${snippet}`,
         }],
         max_tokens: 1024,
       }),
@@ -273,16 +333,44 @@ async function aiFill(html: string, current: ExtractedEvent): Promise<ExtractedE
     const data = await res.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
     const cleaned = text.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
-    const ai = JSON.parse(cleaned);
-    const merged = { ...current };
+    const ai: unknown = JSON.parse(cleaned);
+    if (!ai || typeof ai !== 'object' || Array.isArray(ai)) return current;
+    const fields = ai as Record<string, unknown>;
+    const merged: ExtractedEvent = { ...current };
+    const set = (key: keyof ExtractedEvent, value: unknown) => {
+      (merged as unknown as Record<string, unknown>)[key] = value;
+    };
+    const page = stripHash(pageUrl);
+
+    // Only fill keys that were missing, and only with type-valid, non-sentinel
+    // values. Invalid model output must never overwrite rule/JSON-LD evidence.
     for (const key of missing) {
-      const v = (ai as Record<string, unknown>)[key];
-      if (typeof v === 'string' && v.trim()) (merged as Record<string, unknown>)[key] = v.trim().slice(0, 200);
-      if (typeof v === 'number' && (key === 'teamMin' || key === 'teamMax') && v >= 1 && v <= 20) {
-        (merged as Record<string, unknown>)[key] = v;
+      const v = fields[key];
+      if (key === 'registrationUrl') {
+        const url = resolveRegistrationUrl(v, pageUrl);
+        // A model echoing the listing URL as the signup URL is the old
+        // fabrication bug wearing a new hat.
+        if (url && stripHash(url) !== page) set('registrationUrl', url);
+        continue;
       }
-      if (key === 'mode' && ['ONLINE', 'OFFLINE', 'HYBRID'].includes(String(v))) {
-        (merged as Record<string, unknown>)[key] = v;
+      if ((AI_DATE_FIELDS as readonly string[]).includes(key)) {
+        const iso = normalizeIsoDate(v);
+        if (iso) set(key as keyof ExtractedEvent, iso);
+        continue;
+      }
+      if (key === 'mode') {
+        const mode = typeof v === 'string' ? v.trim().toUpperCase() : '';
+        if (mode === 'ONLINE' || mode === 'OFFLINE' || mode === 'HYBRID') set('mode', mode);
+        continue;
+      }
+      if (key === 'teamMin' || key === 'teamMax') {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (Number.isInteger(n) && n >= 1 && n <= 20) set(key as 'teamMin' | 'teamMax', n);
+        continue;
+      }
+      if ((AI_TEXT_FIELDS as readonly string[]).includes(key)) {
+        const textValue = aiText(v, key === 'eventName' || key === 'organiser' ? 200 : 191);
+        if (textValue) set(key as keyof ExtractedEvent, textValue);
       }
     }
     return merged;
@@ -313,7 +401,7 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       await prisma.hubCandidate.update({ where: { id: candidate.id }, data: { status: 'PROCESSING', error: null } });
       const html = await fetchPage(candidate.url);
       let extracted = extractFromHtml(html, candidate.url, candidate.title);
-      extracted = await aiFill(html, extracted);
+      extracted = await aiFill(html, extracted, candidate.url);
       const confidence = scoreConfidence(extracted, candidate.sourceType);
       const missing = mandatoryMissing(extracted);
       const pageHash = sha256(normalizeContent(html));

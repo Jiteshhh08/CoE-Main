@@ -1,7 +1,23 @@
 import prisma from '@/lib/prisma';
 import { normalizeName, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { cityCoords } from './cities';
+import { coerceDateRange, toDbDate } from './dates';
 import type { ExtractedEvent } from './extract';
 import { mandatoryMissing } from './extract';
+
+// Verification states that mean "a human/authoritative source vouched for
+// this row". Automated publication and CSV import must never overwrite them.
+export const CURATED_VERIFICATION_STATUSES = ['VERIFIED', 'ADMIN_VERIFIED', 'OFFICIAL_SOURCE'] as const;
+
+export function isCuratedVerification(status: string | null | undefined): boolean {
+  return typeof status === 'string' && (CURATED_VERIFICATION_STATUSES as readonly string[]).includes(status);
+}
+
+export const PLACEHOLDER_DESCRIPTION_PREFIX = 'Auto-published with missing fields:';
+
+export function isPlaceholderDescription(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.trim().startsWith(PLACEHOLDER_DESCRIPTION_PREFIX);
+}
 
 // Candidate lifecycle states (§18). String union (not a DB enum) so no
 // migration is needed; importing this instead of string literals keeps
@@ -22,7 +38,14 @@ export const isHubCandidateStatus = (value: unknown): value is HubCandidateStatu
 
 // Promotion: VERIFIED candidate → Opportunity (§18 VERIFIED→PUBLISHED).
 // R12: never auto-publish incomplete rows; publish is an explicit admin act.
-export async function publishCandidate(candidateId: number, actorId: number) {
+export type PublishResult = {
+  opportunityId: number;
+  merged: boolean;
+  conflict?: boolean;
+  reason?: string;
+};
+
+export async function publishCandidate(candidateId: number, actorId: number): Promise<PublishResult> {
   const candidate = await prisma.hubCandidate.findUnique({ where: { id: candidateId } });
   if (!candidate) throw new Error('Candidate not found');
   if (!(['VERIFIED', 'NEEDS_REVIEW', 'NEEDS_UPDATE'] as const).some((s) => s === candidate.status)) {
@@ -40,7 +63,11 @@ export async function publishCandidate(candidateId: number, actorId: number) {
   const organizer = e.organiser ?? 'Unknown organizer';
 
   // Dedupe (§16): URL first, then normalized name+organizer (skipped when unknown).
-  let existing: { id: number } | null = null;
+  let existing: {
+    id: number;
+    description: string | null;
+    verificationStatus: string;
+  } | null = null;
   if (e.registrationUrl) {
     existing =
       (await prisma.opportunity.findFirst({ where: { sourceUrl: e.registrationUrl } })) ??
@@ -49,18 +76,35 @@ export async function publishCandidate(candidateId: number, actorId: number) {
   if (!existing && e.organiser && e.eventName) {
     const rivals = await prisma.opportunity.findMany({
       where: { organizer: e.organiser },
-      select: { id: true, title: true },
+      select: { id: true, title: true, description: true, verificationStatus: true },
       take: 50,
     });
-    existing = rivals.find((r: { title: string }) => normalizeName(r.title) === normalizeName(e.eventName as string)) ?? null;
+    existing = rivals.find((r) => normalizeName(r.title) === normalizeName(e.eventName as string)) ?? null;
   }
 
+  // Conflict policy (shared with CSV import): curated rows are review-only.
+  // Automation must not downgrade them, and an explicit publish click is not
+  // permission to destroy verified data — flag it for a human merge instead.
+  if (existing && isCuratedVerification(existing.verificationStatus)) {
+    const reason = `Curated record #${existing.id} (${existing.verificationStatus}) — not overwritten; review and merge manually.`;
+    await prisma.hubCandidate.update({
+      where: { id: candidateId },
+      data: { status: 'NEEDS_UPDATE' satisfies HubCandidateStatus, opportunityId: existing.id, error: reason },
+    });
+    return { opportunityId: existing.id, merged: false, conflict: true, reason };
+  }
+
+  const dates = coerceDateRange(e.startDate, e.endDate);
   const record = {
     title: clipDbString(title) as string,
     category: 'Hackathon',
     organizer: clipDbString(organizer) as string,
-    description: missing.length > 0 ? `Auto-published with missing fields: ${missing.join(', ')} — verify on the official page.` : null,
-    registrationDeadline: e.registrationDeadline ? new Date(e.registrationDeadline) : null,
+    description: missing.length > 0
+      ? `${PLACEHOLDER_DESCRIPTION_PREFIX} ${missing.join(', ')} — verify on the official page.`
+      : null,
+    // Persistence boundary: untrusted/AI dates become NULL, never an Invalid
+    // Date handed to Prisma, and never a guessed substitute.
+    registrationDeadline: toDbDate(e.registrationDeadline),
     eligibility: clipDbString(e.eligibility),
     prize: clipDbString(e.prizePool),
     themes: e.domains?.length ? e.domains : undefined,
@@ -69,27 +113,47 @@ export async function publishCandidate(candidateId: number, actorId: number) {
     venue: clipDbString(e.venue),
     city: clipDbString(e.city),
     state: clipDbString(e.state),
-    startDate: e.startDate ? new Date(e.startDate) : null,
-    endDate: e.endDate ? new Date(e.endDate) : null,
+    startDate: toDbDate(dates.startDate),
+    endDate: toDbDate(dates.endDate),
     teamMin: e.teamMin ?? null,
     teamMax: e.teamMax ?? null,
     sourceUrl: candidate.url,
     sourceType: candidate.sourceType,
-    verificationStatus: 'ADMIN_VERIFIED',
-    lastVerifiedAt: new Date(),
     pageHash: candidate.pageHash ?? null,
   };
 
   let opportunityId: number;
   if (existing) {
+    // Legitimate refresh of an unverified pipeline row: apply non-null values
+    // only, so a thin re-extraction cannot erase real data it failed to find.
+    const update: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      if (value !== null && value !== undefined) update[key] = value;
+    }
+    if (isPlaceholderDescription(record.description) && existing.description && !isPlaceholderDescription(existing.description)) {
+      update.description = existing.description;
+    }
     const updated = await prisma.opportunity.update({
       where: { id: existing.id },
-      data: { ...record, status: 'APPROVED', showInHub: true },
+      data: {
+        ...update,
+        status: 'APPROVED',
+        showInHub: true,
+        verificationStatus: 'ADMIN_VERIFIED',
+        lastVerifiedAt: new Date(),
+      },
     });
     opportunityId = updated.id;
   } else {
     const created = await prisma.opportunity.create({
-      data: { ...record, status: 'APPROVED', showInHub: true, createdById: actorId },
+      data: {
+        ...record,
+        status: 'APPROVED',
+        showInHub: true,
+        verificationStatus: 'ADMIN_VERIFIED',
+        lastVerifiedAt: new Date(),
+        createdById: actorId,
+      },
     });
     opportunityId = created.id;
   }
@@ -152,33 +216,11 @@ export async function hubStats() {
 }
 
 // Distance from TCET (§37–38, Phase 2-lite: known-city Haversine, display only).
+// Coordinates come from the same registry extraction uses (cities.ts).
 const TCET = { lat: 19.2066, lon: 72.8735 };
-const CITY_COORDS: Record<string, { lat: number; lon: number }> = {
-  'mumbai': { lat: 19.076, lon: 72.8777 },
-  'navi mumbai': { lat: 19.033, lon: 73.0297 },
-  'thane': { lat: 19.2183, lon: 72.9781 },
-  'pune': { lat: 18.5204, lon: 73.8567 },
-  'nagpur': { lat: 21.1458, lon: 79.0882 },
-  'nashik': { lat: 19.9975, lon: 73.7898 },
-  'chhatrapati sambhajinagar': { lat: 19.8762, lon: 75.3433 },
-  'kolhapur': { lat: 16.705, lon: 74.2433 },
-  'delhi': { lat: 28.6139, lon: 77.209 },
-  'bengaluru': { lat: 12.9716, lon: 77.5946 },
-  'hyderabad': { lat: 17.385, lon: 78.4867 },
-  'chennai': { lat: 13.0827, lon: 80.2707 },
-  'kolkata': { lat: 22.5726, lon: 88.3639 },
-  'ahmedabad': { lat: 23.0225, lon: 72.5714 },
-  'jaipur': { lat: 26.9124, lon: 75.7873 },
-  'chandigarh': { lat: 30.7333, lon: 76.7794 },
-  'indore': { lat: 22.7196, lon: 75.8577 },
-  'kochi': { lat: 9.9312, lon: 76.2673 },
-  'guwahati': { lat: 26.1445, lon: 91.7362 },
-  'srivilliputhur': { lat: 9.5125, lon: 77.6336 },
-};
 
 export function kmFromTcet(city: string | null): number | null {
-  if (!city) return null;
-  const coords = CITY_COORDS[city.trim().toLowerCase()];
+  const coords = cityCoords(city);
   if (!coords) return null;
   const R = 6371;
   const toRad = (d: number) => (d * Math.PI) / 180;
