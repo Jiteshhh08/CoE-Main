@@ -515,7 +515,7 @@ export default function HackathonsContentPage() {
             </div>
           </div>
           <p className="mt-1 text-xs text-[#747782]">
-            Automated schedule: full pipeline daily 02:00 AM IST (GitHub Actions `hub-pipeline.yml`).
+            Run the pipeline from the button above.
           </p>
           {hubStats ? (
             <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
@@ -561,7 +561,7 @@ export default function HackathonsContentPage() {
             </label>
           </div>
           <p className="mt-1 text-xs text-[#747782]">
-            Verify important fields, then publish — verified rows stay here until published. Run <span className="font-mono">GET /api/cron/hub?job=all</span> daily (or via scheduler) for discovery → extraction → monitoring.
+            Verify important fields, then publish — verified rows stay here until published. Run <span className="font-mono">GET /api/cron/hub?job=all</span> manually (or use the button above) for discovery → extraction → monitoring.
           </p>
           {candidatesLoading ? (
             <p className="mt-4 text-sm text-[#747782]">Loading candidates…</p>

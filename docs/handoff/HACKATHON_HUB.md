@@ -26,7 +26,7 @@ Students previously had no single place to find outside hackathons, and faculty 
 
 - **Students** browse verified hackathons at `/innovation/hackathon-hub` with search, grouped filters, auto-calculated statuses, distance from TCET, detail views, and bookmarks.
 - **Admins** curate from `/admin/hackathons-content`: a review queue fed by automated discovery, one-click Verify/Publish, CSV/Sheet bulk import, and source toggles. Target workflow: open queue → review → publish → exit.
-- **Automation** (`/api/cron/hub` + GitHub Actions schedule) crawls sources, extracts structured data, and re-checks published pages for changes. The Hub sends no email.
+- **Automation** (`/api/cron/hub`, triggered manually) crawls sources, extracts structured data, and re-checks published pages for changes. The Hub sends no email.
 
 Design decision worth knowing: the Hub **reuses the `Opportunity` system** instead of a parallel table. Every Hub card is an `Opportunity` row; the Hub is its hackathon subset, gated by `showInHub`. This reuses moderation, bookmarks, validators, and admin UI instead of duplicating them. New tables (`HubSource`, `HubCandidate`, `HubImportLog`) hold only pipeline state.
 
@@ -208,7 +208,7 @@ Route: `/innovation/hackathon-hub` (linked left of Innovation Home as a gold **H
 
 Route: `/admin/hackathons-content` — reachable via Navbar → Portals → **Hackathons Content** (admin-only), a shortcut card on the Admin Panel → Content tab, and back-links in its own header. Sections:
 
-1. **Hub Dashboard** — Total / Active / Closing Soon / Needs Review / Expired / New This Week + **Run pipeline now** (runs `?job=all` with your session; result summary inline). Notes the automated schedule.
+1. **Hub Dashboard** — Total / Active / Closing Soon / Needs Review / Expired / New This Week + **Run pipeline now** (runs `?job=all` with your session; result summary inline). There is no automated schedule.
 2. **Hub Review Queue** — status filter (default **Actionable** = needs-review + verified + needs-update; verified rows stay until published), per-row Verify / Publish / Reject, confidence + missing-field notes inline.
 3. **Hub Import — Sheet/CSV** — CSV textarea or Sheet CSV-export URL; result counts + first error.
 4. **Hub Sources** — enable/disable toggles, method/frequency/priority display, per-source `lastError`.
@@ -262,15 +262,15 @@ Automation (`CRON_SECRET` header/query **or** admin session):
 |---|---|
 | `GET /api/cron/hub?job=discover\|extract\|monitor\|all` | Bounded pipeline slice (10-min extraction/discovery and 1-h monitor repeat guards; monitor refuses to overlap) |
 
-Note: a `200` means **this bounded slice completed**, not that the whole catalogue was processed. Monitor results include `checked` and `deferred`; the next scheduled run continues the rotation.
+Note: a `200` means **this bounded slice completed**, not that the whole catalogue was processed. Monitor results include `checked` and `deferred`; the next run continues the rotation.
 
 ---
 
 ## 9. Automation and scheduling
 
 - **Code:** stages live in `src/lib/hub/`; the only entrypoint is `/api/cron/hub` (`src/app/api/cron/hub/route.ts`), following the repo's cron conventions (see `docs/handoff/CRON_JOBS.md`).
-- **Schedule** (`.github/workflows/hub-pipeline.yml`, self-hosted, `CRON_SECRET` secret, mirroring `monthly-grants.yml`): full `?job=all` daily 02:00 IST (`30 20 * * *` UTC); manual `workflow_dispatch` with job picker.
-- **Bounded work:** discovery walks a fixed source list, extraction takes 10 candidates, and monitoring takes a small batch inside a time budget. No stage runs unbounded inside one HTTP request; the workflow's final log line makes the "slice, not everything" contract explicit.
+- **Scheduling:** none. The GitHub Actions workflow was removed; run `?job=all` from the dashboard (admin session) or call the route manually.
+- **Bounded work:** discovery walks a fixed source list, extraction takes 10 candidates, and monitoring takes a small batch inside a time budget. No stage runs unbounded inside one HTTP request.
 - **Manual:** the dashboard's **Run pipeline now** button (admin session, no secret needed).
 
 ---
@@ -293,8 +293,7 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 ## 11. Deployment checklist
 
 - [ ] Merge the Hub branch; deploy auto-runs `migrate deploy` — migrations are additive/nullable (`showInHub` backfills already-approved hackathon-like rows visible).
-- [ ] Env: `CRON_SECRET` (app + Actions secret), optional `QWEN_API_KEY` (rules-only extraction without it).
-- [ ] Enable the `hub-pipeline.yml` schedule (runs on the self-hosted runner like grants).
+- [ ] Env: optional `CRON_SECRET` if triggering the route outside an admin session, optional `QWEN_API_KEY` (rules-only extraction without it).
 - [ ] Seed content: publish the review queue + import a starter CSV so the Hub isn't empty.
 - [ ] Spot-check as student: only `APPROVED + showInHub` rows visible; admin-only routes 403 otherwise.
 - [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (67 checks; DB-backed ones create and delete uniquely-marked rows).
@@ -328,7 +327,7 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 | Student UI | `src/app/innovation/hackathon-hub/page.tsx`, `src/app/api/hackathon-hub/route.ts` |
 | Admin UI | `src/app/admin/hackathons-content/page.tsx` (Dashboard, Queue, Import, Sources) |
 | Admin APIs | `src/app/api/admin/hub/{import,candidates,candidates/[id],sources,stats}/route.ts`, `src/app/api/admin/opportunities/[id]/route.ts` (+`showInHub`) |
-| Cron + schedule | `src/app/api/cron/hub/route.ts`, `.github/workflows/hub-pipeline.yml` |
+| Cron endpoint | `src/app/api/cron/hub/route.ts` (manual/admin-triggered; no GitHub Action) |
 | Schema | `Opportunity` (+12 Hub columns), `HubSource`, `HubCandidate`, `HubImportLog` in `prisma/schema.prisma` |
 | Nav | Hub button in `src/app/innovation/page.tsx`; `Hackathons Content` in `src/components/Navbar.tsx` + Admin Content tab |
 | Validators | Hub enums, dates, teams, 191-char caps in `src/lib/validators.ts` |
