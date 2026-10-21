@@ -320,6 +320,7 @@ async function aiFill(html: string, current: ExtractedEvent, pageUrl: string): P
     const res = await fetch(gatewayUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         model: gatewayModel,
         messages: [{
