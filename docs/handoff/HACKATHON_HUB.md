@@ -26,7 +26,7 @@ Students previously had no single place to find outside hackathons, and faculty 
 
 - **Students** browse verified hackathons at `/innovation/hackathon-hub` with search, grouped filters, auto-calculated statuses, distance from TCET, detail views, and bookmarks.
 - **Admins** curate from `/admin/hackathons-content`: a review queue fed by automated discovery, one-click Verify/Publish, CSV/Sheet bulk import, and source toggles. Target workflow: open queue → review → publish → exit.
-- **Automation** (`/api/cron/hub` + GitHub Actions schedule) crawls sources, extracts structured data, re-checks published pages for changes, and reminds students of closing deadlines.
+- **Automation** (`/api/cron/hub` + GitHub Actions schedule) crawls sources, extracts structured data, and re-checks published pages for changes. The Hub sends no email.
 
 Design decision worth knowing: the Hub **reuses the `Opportunity` system** instead of a parallel table. Every Hub card is an `Opportunity` row; the Hub is its hackathon subset, gated by `showInHub`. This reuses moderation, bookmarks, validators, and admin UI instead of duplicating them. New tables (`HubSource`, `HubCandidate`, `HubImportLog`) hold only pipeline state.
 
