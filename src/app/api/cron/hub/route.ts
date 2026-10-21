@@ -6,6 +6,10 @@ import { runMonitor } from '@/lib/hub/monitor';
 
 // Hub automation jobs (§33–34, Next.js cron-route form): separate lib stages,
 // one guarded entrypoint with ?job=.
+// Platforms that honour route segment limits get an explicit ceiling; on the
+// self-hosted pm2 runtime this is inert and the real bound is per-stage
+// (fixed source list, 10-candidate extraction batch, rotating monitor batch).
+export const maxDuration = 300;
 const lastRunAt = new Map<string, number>();
 // Overlap guard: the minute-level throttle above does not stop a run that is
 // still in flight (a slow batch) from being started again in the same process.

@@ -48,7 +48,7 @@ import {
   isValidCalendarDate,
 } from "../../src/lib/hub/dates";
 import { HUB_CITIES, cityCoords, findHubCityInText, resolveHubCity } from "../../src/lib/hub/cities";
-import { opportunityCreateSchema } from "../../src/lib/validators";
+import { opportunityCreateSchema, opportunityUpdateSchema } from "../../src/lib/validators";
 import { GET as hubGET } from "../../src/app/api/hackathon-hub/route";
 
 let passed = 0;
@@ -131,6 +131,20 @@ check("fitUrl: javascript:/data: rejected, https kept, long nulled", () => {
   assert.equal(fitUrl("https://example.com/apply"), "https://example.com/apply");
   assert.equal(fitUrl("https://" + "x".repeat(200)), null);
   assert.equal(fitUrl(""), null);
+});
+
+check("validation: URL schemes and date/team ranges enforced on create + update", () => {
+  const base = { title: "Validation Event", category: "Hackathon", organizer: "TCET" };
+  for (const bad of ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "not-a-url"]) {
+    assert.equal(opportunityCreateSchema.safeParse({ ...base, applicationUrl: bad }).success, false, bad);
+    assert.equal(opportunityCreateSchema.safeParse({ ...base, sourceUrl: bad }).success, false, bad);
+    const upd = opportunityUpdateSchema.safeParse({ applicationUrl: bad });
+    assert.equal(upd.success, false, `update ${bad}`);
+  }
+  assert.ok(opportunityCreateSchema.safeParse({ ...base, applicationUrl: "https://example.com/apply" }).success);
+  assert.equal(opportunityCreateSchema.safeParse({ ...base, startDate: "2027-05-10", endDate: "2027-05-01" }).success, false);
+  assert.equal(opportunityCreateSchema.safeParse({ ...base, teamMin: 5, teamMax: 2 }).success, false);
+  assert.ok(opportunityCreateSchema.safeParse({ ...base, startDate: "2027-05-01", endDate: "2027-05-10", teamMin: 2, teamMax: 5 }).success);
 });
 
 check("clipDbString: trims and caps at 191", () => {

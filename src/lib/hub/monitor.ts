@@ -36,10 +36,10 @@ export type MonitorResult = {
   errors: string[];
 };
 
-// Change detection (Â§21â€“22) + broken-link review (Â§41.4), bounded.
+// Change detection (§21–22) + broken-link review (§41.4), bounded.
 // Rotation checkpoint is `lastVerifiedAt` (oldest first), so consecutive
 // invocations cover the whole catalogue without extra state. Every completed
-// attempt stamps it â€” including 403/empty pages, otherwise a permanently
+// attempt stamps it — including 403/empty pages, otherwise a permanently
 // restricted page would sit at the head of the queue forever.
 export async function runMonitor(opts: { limit?: number; budgetMs?: number } = {}): Promise<MonitorResult> {
   const limit = clamp(opts.limit ?? DEFAULT_BATCH, 1, 50);
@@ -76,7 +76,7 @@ export async function runMonitor(opts: { limit?: number; budgetMs?: number } = {
         continue;
       }
       if (status === 403 || !html) {
-        // Restricted/unavailable (Â§19) â€” record the attempt so rotation advances.
+        // Restricted/unavailable (§19) — record the attempt so rotation advances.
         await prisma.opportunity.update({ where: { id: opp.id }, data: { lastVerifiedAt: checkedAt } });
         continue;
       }

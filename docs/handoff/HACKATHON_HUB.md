@@ -297,7 +297,7 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 - [ ] Enable the `hub-pipeline.yml` schedule (runs on the self-hosted runner like grants).
 - [ ] Seed content: publish the review queue + import a starter CSV so the Hub isn't empty.
 - [ ] Spot-check as student: only `APPROVED + showInHub` rows visible; admin-only routes 403 otherwise.
-- [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (66 checks; DB-backed ones create and delete uniquely-marked rows).
+- [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (67 checks; DB-backed ones create and delete uniquely-marked rows).
 
 **Known limits (by design, §42):** JS-rendered platform crawlers are parked at `MANUAL` (page fetches return app shells); auto-discovery's reliable legs are the indiahackathons sitemap + pasted URLs + CSV. Prize pools and registration deadlines are rarely published anywhere — rows surface in `NEEDS_REVIEW` missing only the deadline. No search-API provider, personalization, maps, or chatbot.
 
