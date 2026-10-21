@@ -30,11 +30,19 @@ const MAX_SCAN_ROWS = 2000;
 // app is ever scaled horizontally this must move to shared storage.
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 60;
+const RATE_MAX_KEYS = 10_000;
 const rateHits = new Map<string, { count: number; resetAt: number }>();
 
 function rateLimited(key: string, now: number): boolean {
   const entry = rateHits.get(key);
   if (!entry || entry.resetAt <= now) {
+    if (rateHits.size >= RATE_MAX_KEYS) {
+      // Hard memory bound: evict the oldest key in O(1). Expired windows are
+      // reclaimed as new keys arrive; the limiter stays best-effort, and the
+      // single-process assumption noted above still applies.
+      const oldest = rateHits.keys().next();
+      if (!oldest.done) rateHits.delete(oldest.value);
+    }
     rateHits.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return false;
   }

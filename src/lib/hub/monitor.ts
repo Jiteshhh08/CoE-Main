@@ -62,7 +62,12 @@ export async function runMonitor(opts: { limit?: number; budgetMs?: number } = {
   for (const opp of rows) {
     if (Date.now() - startedAt > budgetMs) break;
     const watchUrl = opp.sourceUrl || opp.applicationUrl;
-    if (!watchUrl) continue;
+    if (!watchUrl) {
+      // No page to watch: stamp the attempt so the row rotates out of the head
+      // of the queue instead of consuming a batch slot on every run.
+      await prisma.opportunity.update({ where: { id: opp.id }, data: { lastVerifiedAt: new Date() } });
+      continue;
+    }
     out.checked++;
     try {
       const { status, html } = await fetchText(watchUrl);
