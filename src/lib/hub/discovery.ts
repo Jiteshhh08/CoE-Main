@@ -175,29 +175,61 @@ export async function discoverFromSitemap(
   }
 }
 
+// Personal/listing tabs that look like event slugs but are not events.
+const DEVFORUM_RESERVED_SLUGS = new Set(['applied', 'open', 'past', 'upcoming', 'mine', 'saved']);
+
+// True when a candidate URL is an individual event detail page (not a listing).
+// Unstop/Devfolio/Hack2Skill host registration ON the event page, so for these
+// the page URL is a legitimate registrationUrl — see aiFill().
+export function isIndividualEventPage(url: string, sourceKey: string): boolean {
+  const matcher = SEARCH_SOURCES[sourceKey]?.isEventUrl;
+  if (!matcher) return false;
+  try {
+    return matcher(new URL(url));
+  } catch {
+    return false;
+  }
+}
+
+/** The platform registers on the event page itself (no separate signup link). */
+export function registersOnEventPage(sourceKey: string): boolean {
+  return SEARCH_SOURCES[sourceKey]?.registrationOnPage === true;
+}
+
 // Search-driven discovery. Some platforms are unreachable by crawling: Unstop's
 // /hackathons listing answers with a cookie wall (416 chars of "Please Wait")
 // to both plain fetch AND a JS render. Their individual event pages render fine,
 // so the reliable route is: search -> keep only event URLs -> extract the page.
+// registrationOnPage: the platform hosts sign-up ON the event detail page
+// (Unstop's Apply button, Devfolio's Register). For these, the page URL IS the
+// registration URL — not a guess, a property of the platform.
 export const SEARCH_SOURCES: Record<
   string,
-  { sourceType: string; queries: string[]; isEventUrl: (u: URL) => boolean }
+  { sourceType: string; queries: string[]; isEventUrl: (u: URL) => boolean; registrationOnPage?: boolean }
 > = {
   unstop: {
     sourceType: 'UNSTOP',
+    registrationOnPage: true,
     queries: ['unstop hackathon 2026 India register', 'unstop.com hackathon online students 2026'],
     isEventUrl: (u) => u.hostname.endsWith('unstop.com') && /^\/hackathons\/[^/]+$/i.test(u.pathname),
   },
   devfolio: {
     sourceType: 'DEVFOLIO',
+    registrationOnPage: true,
     queries: ['devfolio hackathon 2026 open register', 'devfolio.co hackathon India 2026'],
     // Devfolio events live on subdomains (biosv2.devfolio.co), not /slug paths.
-    isEventUrl: (u) =>
-      (u.hostname.endsWith('.devfolio.co') && u.pathname === '/') ||
-      (u.hostname === 'devfolio.co' && /^\/hackathons\/[^/]+$/i.test(u.pathname)),
+    // "/hackathons/applied" is a personal dashboard tab, not an event.
+    isEventUrl: (u) => {
+      if (u.hostname.endsWith('.devfolio.co')) return u.pathname === '/';
+      if (u.hostname !== 'devfolio.co') return false;
+      const m = /^\/hackathons\/([^/]+)$/i.exec(u.pathname);
+      if (!m) return false;
+      return !DEVFORUM_RESERVED_SLUGS.has(m[1].toLowerCase());
+    },
   },
   hack2skill: {
     sourceType: 'HACK2SKILL',
+    registrationOnPage: true,
     queries: ['hack2skill hackathon 2026 register'],
     isEventUrl: (u) =>
       u.hostname.endsWith('hack2skill.com') && /^\/(hackathons|competitions)\/[^/]+$/i.test(u.pathname),

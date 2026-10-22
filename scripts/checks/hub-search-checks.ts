@@ -20,7 +20,14 @@ import {
   type ExtractedEvent,
 } from '../../src/lib/hub/extract';
 import { isFirecrawlConfigured, searchWeb, fetchHtmlWithRender, renderHtml } from '../../src/lib/hub/firecrawl';
-import { discoverFromSearch, extractEventLinks, decodeEntities, SEARCH_SOURCES } from '../../src/lib/hub/discovery';
+import {
+  discoverFromSearch,
+  extractEventLinks,
+  decodeEntities,
+  SEARCH_SOURCES,
+  registersOnEventPage,
+  isIndividualEventPage,
+} from '../../src/lib/hub/discovery';
 import { ensureHubSources } from '../../src/lib/hub/sources';
 import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
 import { cleanEventTitle } from '../../src/lib/hackathon-hub';
@@ -136,6 +143,22 @@ check('renderer: refuses a public host (must not become an egress proxy)', () =>
   else process.env.FIRECRAWL_URL = prev;
 });
 
+check('renderer: non-private host needs an explicit allowlist entry', () => {
+  const prevUrl = process.env.FIRECRAWL_URL;
+  const prevHosts = process.env.FIRECRAWL_ALLOWED_HOSTS;
+  process.env.FIRECRAWL_URL = 'http://175.175.1.89:3002';
+  delete process.env.FIRECRAWL_ALLOWED_HOSTS;
+  assert.strictEqual(isFirecrawlConfigured(), false, 'public-ish host must be refused by default');
+  process.env.FIRECRAWL_ALLOWED_HOSTS = '175.175.1.89';
+  assert.strictEqual(isFirecrawlConfigured(), true, 'explicitly allowlisted host is accepted');
+  process.env.FIRECRAWL_ALLOWED_HOSTS = 'other.host';
+  assert.strictEqual(isFirecrawlConfigured(), false, 'a different allowlist entry must not match');
+  if (prevUrl === undefined) delete process.env.FIRECRAWL_URL;
+  else process.env.FIRECRAWL_URL = prevUrl;
+  if (prevHosts === undefined) delete process.env.FIRECRAWL_ALLOWED_HOSTS;
+  else process.env.FIRECRAWL_ALLOWED_HOSTS = prevHosts;
+});
+
 check('renderer: accepts loopback and private hosts', () => {
   const prev = process.env.FIRECRAWL_URL;
   for (const good of ['http://127.0.0.1:3002', 'http://localhost:3002', 'http://192.168.1.20:3002']) {
@@ -152,6 +175,33 @@ check('extraction: footer chrome never becomes an organiser', () => {
   const real = '<html><body><p>This hackathon is organised by Acme Robotics Club Pune</p></body></html>';
   const org = extractFromHtml(real, 'https://example.com/ev').organiser;
   assert.ok(org && /acme/i.test(org), `expected a real organiser, got ${JSON.stringify(org)}`);
+});
+
+check('confidence: an ONLINE event is not penalised for having no city', () => {
+  const online = fullEvent({ city: null, mode: 'ONLINE' });
+  assert.strictEqual(scoreConfidence(online, 'UNSTOP'), 0.9);
+  assert.strictEqual(wouldVerify(online, 'UNSTOP'), true);
+  // offline with no city still falls short — we genuinely want the location.
+  // (0.87: the prize bonus still applies, city is what's missing.)
+  const offline = fullEvent({ city: null, mode: 'OFFLINE' });
+  assert.strictEqual(scoreConfidence(offline, 'UNSTOP'), 0.87);
+  assert.strictEqual(wouldVerify(offline, 'UNSTOP'), false);
+});
+
+check('registration: platforms that sign up on the event page are declared', () => {
+  assert.strictEqual(registersOnEventPage('unstop'), true);
+  assert.strictEqual(registersOnEventPage('devfolio'), true);
+  assert.strictEqual(registersOnEventPage('hack2skill'), true);
+  assert.strictEqual(registersOnEventPage('indiahackathons'), false);
+  assert.strictEqual(registersOnEventPage('government'), false);
+});
+
+check('registration: event-page predicate rejects listing/dashboard URLs', () => {
+  assert.strictEqual(isIndividualEventPage('https://unstop.com/hackathons/some-event-1', 'unstop'), true);
+  assert.strictEqual(isIndividualEventPage('https://unstop.com/hackathons', 'unstop'), false);
+  assert.strictEqual(isIndividualEventPage('https://devfolio.co/hackathons/applied', 'devfolio'), false);
+  assert.strictEqual(isIndividualEventPage('https://devfolio.co/hackathons/open', 'devfolio'), false);
+  assert.strictEqual(isIndividualEventPage('https://biosv2.devfolio.co/', 'devfolio'), true);
 });
 
 check('titles: platform chrome is stripped before storage', () => {

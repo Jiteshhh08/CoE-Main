@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { normalizeContent, sha256 } from './discovery';
+import { normalizeContent, sha256, isIndividualEventPage, registersOnEventPage } from './discovery';
 import { fetchHtmlWithRender } from './firecrawl';
 import { HUB_CITIES, findHubCityInText } from './cities';
 import {
@@ -302,7 +302,10 @@ export function scoreConfidence(e: ExtractedEvent, sourceType: string): number {
   score += mandatory.filter(Boolean).length * 0.05; // all six -> 0.70
   if (TRUSTED_SOURCES.includes(sourceType)) score += 0.2; // -> 0.90
   else if (AGGREGATOR_SOURCES.includes(sourceType)) score += 0.15; // -> 0.85
-  if (e.city) score += 0.03;
+  // A city is meaningless for an online event, so its absence must not cap the
+  // score — otherwise every ONLINE aggregator event plateaus at 0.87 and can
+  // never auto-verify no matter how complete the extraction is.
+  if (e.city || e.mode === 'ONLINE') score += 0.03;
   if (e.prizePool) score += 0.02;
   return Math.min(0.95, Math.round(score * 100) / 100);
 }
@@ -328,7 +331,12 @@ function aiText(value: unknown, max = 200): string | null {
   return trimmed ? trimmed.slice(0, max) : null;
 }
 
-async function aiFill(html: string, current: ExtractedEvent, pageUrl: string): Promise<ExtractedEvent> {
+async function aiFill(
+  html: string,
+  current: ExtractedEvent,
+  pageUrl: string,
+  allowPageAsRegistration = false,
+): Promise<ExtractedEvent> {
   const apiKey = process.env.QWEN_API_KEY?.trim();
   // No hardcoded gateway: URL + model come from env like grants-automation.
   // Unlike grants (which fails loudly), Hub degrades to rules-only extraction
@@ -375,9 +383,12 @@ async function aiFill(html: string, current: ExtractedEvent, pageUrl: string): P
       const v = fields[key];
       if (key === 'registrationUrl') {
         const url = resolveRegistrationUrl(v, pageUrl);
-        // A model echoing the listing URL as the signup URL is the old
-        // fabrication bug wearing a new hat.
-        if (url && stripHash(url) !== page) set('registrationUrl', url);
+        // A model echoing the LISTING URL as the signup URL is the old
+        // fabrication bug wearing a new hat. On an individual event page it is
+        // not fabrication: Unstop/Devfolio host registration on that very page,
+        // so refusing it makes registrationUrl unsatisfiable and such events can
+        // never auto-verify. allowPageAsRegistration is set only for those.
+        if (url && (stripHash(url) !== page || allowPageAsRegistration)) set('registrationUrl', url);
         continue;
       }
       if ((AI_DATE_FIELDS as readonly string[]).includes(key)) {
@@ -430,7 +441,17 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       await prisma.hubCandidate.update({ where: { id: candidate.id }, data: { status: 'PROCESSING', error: null } });
       const html = await fetchPage(candidate.url);
       let extracted = extractFromHtml(html, candidate.url, candidate.title);
-      extracted = await aiFill(html, extracted, candidate.url);
+      extracted = await aiFill(
+        html,
+        extracted,
+        candidate.url,
+        isIndividualEventPage(candidate.url, candidate.source),
+      );
+      // Platforms that register on the event page: the page URL is the correct
+      // registration link when the page itself carries no separate signup URL.
+      if (!extracted.registrationUrl && registersOnEventPage(candidate.source)) {
+        extracted.registrationUrl = candidate.url;
+      }
       const confidence = scoreConfidence(extracted, candidate.sourceType);
       const missing = mandatoryMissing(extracted);
       const pageHash = sha256(normalizeContent(html));

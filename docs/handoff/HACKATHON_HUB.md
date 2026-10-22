@@ -177,6 +177,7 @@ Three layers, in order — missing stays `NULL`, never invented:
 - `endDate` is only set from an explicit value or a genuinely later date found on the page. One date does not imply a one-day event.
 - Numeric dates: `13/04/2027` → 13 Apr, `04/13/2027` → 13 Apr, but `03/04/2027` is ambiguous and rejected. Written-month and ISO dates are validated against a real calendar (no `31 February`, leap-aware).
 - AI output: JSON `null`/`"null"`/`"undefined"`/`"N/A"`/`"none"`/`"-"`/blank are missing, dates must be valid ISO, and invalid values never overwrite rule/JSON-LD evidence.
+- `registrationUrl` is never a LISTING page URL. On a platform that signs users up on the event detail page itself (`registrationOnPage` — Unstop, Devfolio, Hack2Skill), the event page URL **is** the registration URL and is used. Without this, `registrationUrl` is unsatisfiable for those sources and no event from them could ever auto-verify.
 
 **Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field (six -> 0.70) + source bonus (official/government/admin +0.2, aggregators +0.15) + city 0.03 + prize 0.02, capped 0.95. `HUB_VERIFY_THRESHOLD` (0.9) **and** all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing.
 
@@ -188,6 +189,8 @@ Ceilings that ACTUALLY reach the threshold (this is the trap — verify it whene
 |---|---|---|
 | official / government / admin | 0.95 | yes |
 | aggregator (`UNSTOP`, `DEVFOLIO`, `HACKEREARTH`, `HACK2SKILL`, `MLH`, `COLLEGE_WEBSITE`, `INDIAHACKATHONS`) | 0.90 | yes, but only when complete |
+| aggregator, ONLINE event (city not applicable) | 0.90 | yes — a city is meaningless for an online event, so its absence must not cap the score |
+| aggregator, OFFLINE and no city | 0.87 | no |
 | aggregator without city or prize | 0.85 | no |
 | unlisted source | 0.75 | no |
 
@@ -324,6 +327,7 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 |---|---|---|
 | `FIRECRAWL_URL` | unset (disabled) | Self-hosted Firecrawl endpoint. **Loopback or RFC1918 only** — a public host is refused at startup so the app can never become an open egress proxy. |
 | `FIRECRAWL_API_KEY` | unset | Sent as a bearer token if the local service requires one. |
+| `FIRECRAWL_ALLOWED_HOSTS` | unset | Comma-separated extra hosts allowed to serve `FIRECRAWL_URL`. Loopback and RFC1918 are always allowed; a LAN/CGNAT address (e.g. `175.175.1.89`, Tailscale `100.64/10`) must be named explicitly. |
 
 With it set: JS-shell pages are rendered automatically, and `unstop` / `hackerearth` / `devfolio` flip from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party search account or per-query credits are involved either way.
 

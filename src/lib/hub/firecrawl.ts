@@ -13,6 +13,17 @@ const SEARCH_TIMEOUT_MS = 30_000;
 // cookie wall, and worth a (much more expensive) render.
 const SHELL_TEXT_THRESHOLD = 900;
 
+// Explicit operator allowlist, e.g. FIRECRAWL_ALLOWED_HOSTS=175.175.1.89.
+// Needed when prod reaches the renderer over a LAN/CGNAT address that is not
+// RFC1918 (175.175.x, Tailscale 100.64/10). Keeping it an explicit list is the
+// point: this endpoint must never drift into an arbitrary public host.
+function allowedHosts(): string[] {
+  return (process.env.FIRECRAWL_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase().replace(/^www\./, ''))
+    .filter((h) => h.length > 0);
+}
+
 function endpoint(): string | null {
   const raw = (process.env.FIRECRAWL_URL || '').trim();
   if (!raw) return null;
@@ -30,7 +41,8 @@ function endpoint(): string | null {
     /^10\./.test(host) ||
     /^192\.168\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (!loopback && !privateNet) return null;
+  const allowlisted = allowedHosts().some((d) => host === d || host.endsWith('.' + d));
+  if (!loopback && !privateNet && !allowlisted) return null;
   return raw.replace(/\/+$/, '');
 }
 
