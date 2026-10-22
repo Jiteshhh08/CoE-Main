@@ -149,19 +149,29 @@ All in `src/lib/hub/`, triggered by `/api/cron/hub?job=` (see §9).
 3. **Dedupe** by exact URL; each new candidate stores the source page's SHA-256 as its baseline `pageHash`; per-source errors recorded on the source row, never aborting other sources.
 
 4. **Render fallback** (`firecrawl.ts` -> `fetchHtmlWithRender`): when a plain fetch returns a JS shell (under 900 visible chars), the page is re-fetched through the self-hosted renderer and the post-JS HTML is used. Both discovery and extraction route through this one helper, so JS-heavy sources are fixed in one place. Measured: Unstop's listing 442 -> 5,906 visible chars; HackerEarth 496 -> 7,314.
-5. **Search stage** (`discoverFromSearch`): for platforms whose listings stay unusable, open-internet search supplies event URLs, filtered by the source's own `isEventUrl` matcher so index pages ("Competitions", `/hackathons/applied`) never become candidates. The same matcher is applied to crawled links, so both paths reject the same junk.
+5. **Structured stage** (`discoverFromStructured`, `structured.ts`): the platforms publish their own JSON APIs, so they are read directly instead of searched for. No renderer, no model, no key, no quota.
 
-Both stages are **optional and self-healing**: with no renderer configured the pipeline behaves exactly as before (`unstop`/`hackerearth`/`devfolio` stay `MANUAL`), and re-enabling it flips them to `PAGE` on the next `ensureHubSources()` run.
+| Source | Endpoint | Collection | Notes |
+|---|---|---|---|
+| Unstop | `unstop.com/api/public/opportunity/search-new?opportunity=hackathons&page=N&per_page=100` | 6,832 | Every mandatory field on 100% of rows |
+| Devfolio | `api.devfolio.co/api/hackathons?type=open&page=N` | 2,038 | 1,000 rows/page (~8.3 MB) |
+| Devpost | `devpost.com/api/hackathons?challenge_type[]=online&page=N&per_page=50` | 5,250 | Prize amount arrives as HTML |
 
-### 4.1a Search query strategy (§10) and geo tiers (§11)
+Crawled links still go through each source's `isEventUrl` matcher, so index pages ("Competitions", `/hackathons/applied`) never become candidates. Unstop events live under both `/hackathons/` and `/competitions/`.
 
-Implemented as `SEARCH_SOURCES` in `discovery.ts`; runs only when a self-hosted search provider is configured (`FIRECRAWL_URL`). Listed here as the strategy each entry encodes.
+**Search was removed.** It returned fewer fields at lower coverage and depended on third-party engines that rate-limit and CAPTCHA this host (SearXNG would silently answer with zero rows). Measured on the same day: search + render + model auto-verified 6 of 15 candidates; the Unstop API auto-verifies 209 of 295, with no rendering and no model call.
 
-- **Location:** hackathon Mumbai / Navi Mumbai / Thane / Pune / Maharashtra / India 2026, online hackathon 2026
-- **Institution:** college / engineering-college-Maharashtra / university hackathon Mumbai 2026
-- **Technology:** AI, ML, GenAI, cybersecurity, cloud, IoT, blockchain hackathon 2026 India
-- **Platform:** `site:devfolio.co`, `site:unstop.com`, `site:hackerearth.com`, `site:hack2skill.com`, `site:mlh.io` scoped queries
-- **Tiers:** local (TCET vicinity, Mumbai, Navi Mumbai, Thane) → Maharashtra (Pune, Nagpur, Nashik, Chhatrapati Sambhajinagar, Kolhapur) → national (India-wide, online, international-online open to Indian students)
+The renderer is now **only** needed for HackerEarth, which has no API: it stays `MANUAL` without `FIRECRAWL_URL` and flips to `PAGE` when one is configured. Structured sources work either way.
+
+### 4.1a Field mapping
+
+Each adapter maps the platform's native fields into `ExtractedEvent`. Nothing is inferred where the platform is silent.
+
+- **Unstop** — `title`, `organisation.name`, `seo_url`, `start_date`/`end_date`, `regnRequirements.end_regn_dt` (the real registration window), `regnRequirements.min/max_team_size`, `address_with_country_logo.{address,city,state}`, `region` → `online`/`offline`/`hybrid`, `prizes[].{cash,currency}`, `required_skills[].skill_name`, `regnRequirements.eligibility` (JSON → "Students").
+- **Devfolio** — `name`, `starts_at`/`ends_at`, `hackathon_setting.reg_ends_at` (real registration close, ~999/1000 rows), `city`/`state`/`country`, `is_online`, `team_min`/`team_size`, `prizes[].{amount,currency}`, `themes[].name`, `is_university_hackathon`. Organiser comes from `hackathon_brand`, `edition_name`, or an "Organized by …" match in the markdown `desc` — **only ~18% of rows carry one**, so the rest correctly land in `NEEDS_REVIEW` rather than being guessed.
+- **Devpost** — `title`, `organization_name`, `url`, `submission_period_dates` ("Aug 31 - Oct 23, 2026" → dates, with year-rollover handling for "Dec 15 - Jan 20, 2027"), `prize_amount` (HTML-stripped), `displayed_location` → mode + city/state, `themes[].name`.
+
+Devfolio and Devpost keep registration open until submissions close, so their submission end date **is** the registration deadline. On Unstop the two are distinct and both are read from the API.
 
 ### 4.2 Extraction (`extract.ts`)
 
@@ -317,11 +327,11 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 - [ ] Spot-check as student: only `APPROVED + showInHub` rows visible; admin-only routes 403 otherwise.
 - [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (67 checks; DB-backed ones create and delete uniquely-marked rows).
 
-**Known limits (by design, §42):** JS-rendered platform crawlers are parked at `MANUAL` (page fetches return app shells); auto-discovery's reliable legs are the indiahackathons sitemap + pasted URLs + CSV. Prize pools and registration deadlines are rarely published anywhere — rows surface in `NEEDS_REVIEW` missing only the deadline. No search-API provider, personalization, maps, or chatbot.
+**Known limits (by design, §42):** Devfolio's list API publishes no organiser for ~82% of rows, so those land in `NEEDS_REVIEW` (the data is genuinely absent, not missed). HackerEarth has no API and needs the renderer to crawl. Structured endpoints are **undocumented** — a shape change degrades to a missing field or a reported error, never a thrown run. No search provider, personalization, maps, or chatbot.
 
 ---
 
-### Optional: self-hosted renderer and search
+### Optional: self-hosted renderer
 
 | Var | Default | Meaning |
 |---|---|---|
@@ -335,9 +345,20 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 
 - **Bind it to loopback + Tailscale, never `0.0.0.0`.** It is an *unauthenticated* scraping service: bound to `0.0.0.0` every host on the campus `/16` can scrape the internet through it. `127.0.0.1` for local work plus the Tailscale address for prod is enough.
 - `GET /api/cron/hub?job=all` now returns `renderer: { configured, healthy, budget }`. A dead renderer otherwise degrades into "fewer candidates" that reads like a normal run.
-- **Search is best-effort.** The self-hosted SearXNG gets CAPTCHA-ed and rate-limited by public engines, after which `/v1/search` returns zero rows. Discovery is designed not to depend on it: the crawl+render path still finds Unstop/Devfolio/HackerEarth events (measured 124 candidates with search fully down). Keep several engines enabled in `searxng/settings.yml` so one being blocked does not empty the stage, and treat a `search returned nothing` error in the cron output as an upstream symptom, not a bug here.
+- The renderer is **only** used for HackerEarth now (no API). Everything else is read from JSON, so a dead renderer costs one source rather than the run.
+- SearXNG is no longer on the discovery path. Its engines CAPTCHA this host regularly, which is why search was dropped — see §4.1.
 
-With it set: JS-shell pages are rendered automatically, and `unstop` / `hackerearth` / `devfolio` flip from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party search account or per-query credits are involved either way.
+With it set: JS-shell pages render automatically and `hackerearth` flips from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party account or per-query credits are involved either way.
+
+### Deduplication (§16)
+
+The same hackathon is routinely listed on several platforms, and no shared id exists between them, so identity is derived (`dedupe.ts`):
+
+1. **Exact URL** — a candidate is never stored twice.
+2. **Native id within a source** — the same row twice in one payload.
+3. **Cross-source identity** — a distinctive normalized title plus a non-contradicting start date. Both the discovery stage and `publishCandidate` route through `isSameEvent()`, so a duplicate cannot slip through one layer by being accepted in the other.
+
+Two rules stop it fusing genuinely different events: a title must be distinctive (≥12 normalized chars, and not made only of event-words plus a year — "Hackathon 2026" carries no identity), and two matching titles whose start dates are more than two days apart are different editions. Measured end-to-end: 2,475 events across four sources produced **0 duplicate URLs**, and an event already published from one platform is counted as a duplicate rather than re-ingested when a second platform lists it.
 
 ## 12. Troubleshooting
 

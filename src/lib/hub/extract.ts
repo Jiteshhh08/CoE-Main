@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256, isIndividualEventPage, registersOnEventPage } from './discovery';
+import { scoreConfidence, mandatoryMissing, HUB_VERIFY_THRESHOLD } from './confidence';
 import { fetchHtmlWithRender } from './firecrawl';
 import { HUB_CITIES, findHubCityInText } from './cities';
 import {
@@ -274,52 +275,17 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
   };
 }
 
-// Confidence (§15): rule-based only, capped by evidence. Missing stays low.
-// Auto-validation threshold. A candidate must have every mandatory field AND
-// reach this score to skip human review.
-export const HUB_VERIFY_THRESHOLD = 0.9;
-
-// Sources we trust enough to auto-verify.
-const TRUSTED_SOURCES = ['OFFICIAL_WEBSITE', 'GOVERNMENT', 'ADMIN'];
-
-// Known hackathon aggregators: real events, but third-party listings.
-// INDIAHACKATHONS was absent from every tier, which capped it at 0.75 —
-// structurally below HUB_VERIFY_THRESHOLD, so 96 of the 111 candidates in a
-// live run could never verify no matter how good the extraction was.
-const AGGREGATOR_SOURCES = [
-  'DEVFOLIO',
-  'UNSTOP',
-  'HACKEREARTH',
-  'HACK2SKILL',
-  'MLH',
-  'COLLEGE_WEBSITE',
-  'INDIAHACKATHONS',
-];
-
-export function scoreConfidence(e: ExtractedEvent, sourceType: string): number {
-  let score = 0.4;
-  const mandatory = [e.eventName, e.organiser, e.startDate, e.registrationDeadline, e.registrationUrl, e.mode];
-  score += mandatory.filter(Boolean).length * 0.05; // all six -> 0.70
-  if (TRUSTED_SOURCES.includes(sourceType)) score += 0.2; // -> 0.90
-  else if (AGGREGATOR_SOURCES.includes(sourceType)) score += 0.15; // -> 0.85
-  // A city is meaningless for an online event, so its absence must not cap the
-  // score — otherwise every ONLINE aggregator event plateaus at 0.87 and can
-  // never auto-verify no matter how complete the extraction is.
-  if (e.city || e.mode === 'ONLINE') score += 0.03;
-  if (e.prizePool) score += 0.02;
-  return Math.min(0.95, Math.round(score * 100) / 100);
-}
-
-export function mandatoryMissing(e: ExtractedEvent): string[] {
-  const missing: string[] = [];
-  if (!e.eventName) missing.push('eventName');
-  if (!e.organiser) missing.push('organiser');
-  if (!e.startDate) missing.push('startDate');
-  if (!e.registrationDeadline) missing.push('registrationDeadline');
-  if (!e.registrationUrl) missing.push('registrationUrl');
-  if (!e.mode) missing.push('mode');
-  return missing;
-}
+// Confidence scoring and the auto-verify gate live in ./confidence — a leaf
+// module, so the structured-API discovery stage can score an event without
+// importing this file (which already imports discovery).
+export {
+  HUB_VERIFY_THRESHOLD,
+  TRUSTED_SOURCES,
+  AGGREGATOR_SOURCES,
+  scoreConfidence,
+  mandatoryMissing,
+  wouldAutoVerify,
+} from './confidence';
 
 const AI_TEXT_FIELDS = ['eventName', 'organiser', 'city', 'venue', 'state', 'prizePool', 'eligibility'] as const;
 const AI_DATE_FIELDS = ['startDate', 'endDate', 'registrationDeadline'] as const;

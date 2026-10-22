@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { normalizeName, cleanEventTitle, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { isSameEvent, titleKey } from './dedupe';
 import { cityCoords } from './cities';
 import { coerceDateRange, toDbDate } from './dates';
 import type { ExtractedEvent } from './extract';
@@ -74,27 +75,27 @@ export async function publishCandidate(candidateId: number, actorId: number): Pr
       (await prisma.opportunity.findFirst({ where: { applicationUrl: e.registrationUrl } }));
   }
   if (!existing && e.eventName) {
-    const needle = normalizeName(cleanEventTitle(e.eventName));
+    const identity = { title: e.eventName, startDate: e.startDate, organiser: e.organiser };
+    // Organiser first (cheap, narrow), then the whole table by title.
+    // Cross-source listings almost never agree on the organiser string ("Unstop"
+    // vs "PCCOE GFG Student Chapter"), so a distinctive title is the only shared
+    // signal. isSameEvent() also refuses to fuse two editions of one event: a
+    // matching title with start dates months apart is a different year, and
+    // titles that are only event-words ("Codefest 2026") never key at all.
+    // ponytail: in-memory scan capped at 500 rows; move to a normalized-title
+    // column with an index if the opportunity table outgrows that.
+    const RIVAL_SELECT = { id: true, title: true, description: true, verificationStatus: true, startDate: true };
     if (e.organiser) {
       const rivals = await prisma.opportunity.findMany({
         where: { organizer: e.organiser },
-        select: { id: true, title: true, description: true, verificationStatus: true },
+        select: RIVAL_SELECT,
         take: 50,
       });
-      existing = rivals.find((r) => normalizeName(cleanEventTitle(r.title)) === needle) ?? null;
+      existing = rivals.find((r) => isSameEvent(identity, r)) ?? null;
     }
-    // Cross-source listings almost never agree on the organiser string ("Unstop"
-    // vs "PCCOE GFG Student Chapter"), so a distinctive title is the only shared
-    // signal. Short/generic titles stay unmatched on purpose: fusing
-    // "Hackathon 2026" would hide genuinely different events.
-    // ponytail: in-memory scan capped at 500 rows; move to a normalized-title
-    // column with an index if the opportunity table outgrows that.
-    if (!existing && needle.length >= 12) {
-      const rivals = await prisma.opportunity.findMany({
-        select: { id: true, title: true, description: true, verificationStatus: true },
-        take: 500,
-      });
-      existing = rivals.find((r) => normalizeName(cleanEventTitle(r.title)) === needle) ?? null;
+    if (!existing && titleKey(e.eventName)) {
+      const rivals = await prisma.opportunity.findMany({ select: RIVAL_SELECT, take: 500 });
+      existing = rivals.find((r) => isSameEvent(identity, r)) ?? null;
     }
   }
 

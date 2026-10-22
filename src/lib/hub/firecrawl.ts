@@ -10,7 +10,6 @@ import { assertPublicHttpsUrl, fetchPublicText } from './fetch-guard';
 // Observed render latency is 3-7s; 20s is generous headroom. These are
 // CEILINGS, and ceilings are what blow a maxDuration=300 request.
 const RENDER_TIMEOUT_MS = 20_000;
-const SEARCH_TIMEOUT_MS = 12_000;
 
 // Rendering is the expensive, unbounded-feeling part of a cron request: six
 // crawl seeds plus extraction can each stall on a hung renderer. Budget it over
@@ -209,41 +208,3 @@ export async function rendererHealthy(): Promise<boolean> {
   }
 }
 
-export type WebSearchHit = { title: string; url: string; snippet: string };
-
-/**
- * Open-internet search through the self-hosted stack (SearXNG behind Firecrawl).
- * Returns an empty list rather than throwing: a dead search provider must not
- * fail a discovery run.
- */
-export async function searchWeb(query: string, limit = 10): Promise<WebSearchHit[]> {
-  const base = endpoint();
-  if (!base) return [];
-  try {
-    const res = await fetch(`${base}/v1/search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ query, limit }),
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as {
-      success?: boolean;
-      data?: { title?: string; url?: string; description?: string }[];
-    };
-    const rows = Array.isArray(data?.data) ? data.data : [];
-    const out: WebSearchHit[] = [];
-    for (const r of rows) {
-      if (!r?.url || !r?.title) continue;
-      if (!r.url.startsWith('https://')) continue;
-      out.push({
-        title: r.title.slice(0, 200),
-        url: r.url.split('#')[0],
-        snippet: (r.description || '').slice(0, 300),
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}

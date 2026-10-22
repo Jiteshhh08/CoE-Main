@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { hubSourceLabel } from '@/lib/hackathon-hub';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
 
@@ -301,6 +302,14 @@ export default function HackathonHubPage() {
                       {opp.verificationStatus.replace('_', ' ')}
                     </span>
                   ) : null}
+                  {opp.sourceType ? (
+                    <span
+                      title={opp.sourceUrl ? `Original listing: ${opp.sourceUrl}` : undefined}
+                      className="rounded-full border border-[#c4c6d3] bg-white px-3 py-1 text-[11px] font-semibold text-[#434651]"
+                    >
+                      via {hubSourceLabel(opp.sourceType)}
+                    </span>
+                  ) : null}
                 </div>
                 <h3 className="mt-3 font-headline text-xl font-bold text-[#002155]">{opp.title}</h3>
                 <p className="mt-1 text-sm text-[#434651]">by {opp.organizer}</p>
@@ -368,7 +377,10 @@ export default function HackathonHubPage() {
                 {selected.applicationUrl ? <a href={selected.applicationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Register now</a> : null}
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Eligibility</h3>
-                <p className="mt-1">{selected.eligibility ?? 'Open — confirm on official page.'} · Team: {selected.teamMin ?? '?'}–{selected.teamMax ?? '?'}</p>
+                <p className="mt-1">{selected.eligibility ?? 'Open — confirm on official page.'}</p>
+                <p className="mt-1">
+                  Team size: {selected.teamMin || selected.teamMax ? `${selected.teamMin ?? '?'}–${selected.teamMax ?? '?'} members` : 'Not published'}
+                </p>
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Competition</h3>
                 <p className="mt-1">Domains: {(selected.themes ?? []).join(', ') || '—'} · Tech: {(selected.technologies ?? []).join(', ') || '—'}</p>
@@ -376,9 +388,16 @@ export default function HackathonHubPage() {
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Benefits</h3>
                 <p className="mt-1">Prize: {selected.prize ?? '—'}</p>
               </section>
-              <section className="border-t border-[#e3e2df] pt-3 text-xs text-[#747782]"><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Verification</h3>
-                <p className="mt-1">Last verified: {selected.lastVerifiedAt ? formatDate(selected.lastVerifiedAt) : 'Not yet'} · Source: {selected.sourceType ?? 'ADMIN'}</p>
-                {selected.sourceUrl ? <a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">Source link</a> : null}
+              <section className="border-t border-[#e3e2df] pt-3 text-xs text-[#747782]"><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Source</h3>
+                <p className="mt-1">
+                  Listed on <span className="font-semibold text-[#434651]">{hubSourceLabel(selected.sourceType)}</span>
+                  {selected.sourceUrl ? (
+                    <> · <a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">view original listing</a></>
+                  ) : null}
+                </p>
+                <p className="mt-1">
+                  Verification: {selected.verificationStatus ?? 'UNVERIFIED'} · Last checked: {selected.lastVerifiedAt ? formatDate(selected.lastVerifiedAt) : 'Not yet'}
+                </p>
               </section>
             </div>
           </div>

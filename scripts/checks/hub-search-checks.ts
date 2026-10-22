@@ -21,7 +21,6 @@ import {
 } from '../../src/lib/hub/extract';
 import {
   isFirecrawlConfigured,
-  searchWeb,
   fetchHtmlWithRender,
   renderHtml,
   renderBudgetAvailable,
@@ -31,13 +30,16 @@ import {
 } from '../../src/lib/hub/firecrawl';
 import {
   runDiscovery,
-  discoverFromSearch,
+  discoverFromStructured,
   extractEventLinks,
   decodeEntities,
-  SEARCH_SOURCES,
+  PLATFORM_MATCHERS,
   registersOnEventPage,
   isIndividualEventPage,
 } from '../../src/lib/hub/discovery';
+import { STRUCTURED_SOURCES, fetchStructuredPage, parseDateRange, parseDevpost } from '../../src/lib/hub/structured';
+import { addToIndex, indexHas, isSameEvent, titleKey, type ExistingIndex } from '../../src/lib/hub/dedupe';
+import { wouldAutoVerify } from '../../src/lib/hub/confidence';
 import { ensureHubSources } from '../../src/lib/hub/sources';
 import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
 import { cleanEventTitle } from '../../src/lib/hackathon-hub';
@@ -243,7 +245,7 @@ check('entities: link titles are decoded', () => {
 });
 
 check('matcher: unstop accepts event pages only', () => {
-  const m = SEARCH_SOURCES.unstop.isEventUrl;
+  const m = PLATFORM_MATCHERS.unstop.isEventUrl;
   assert.strictEqual(m(new URL('https://unstop.com/hackathons/some-event-123')), true);
   assert.strictEqual(m(new URL('https://unstop.com/hackathons')), false);
   assert.strictEqual(m(new URL('https://unstop.com/competitions')), false);
@@ -253,6 +255,51 @@ check('matcher: unstop accepts event pages only', () => {
 async function dedupeChecks() {
   const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
   if (!admin) throw new Error('dedupe checks need an ADMIN user');
+
+  // ── pure-function checks: no DB, no network ──
+  check('dedupe: a generic title is never evidence of a duplicate', () => {
+    assert.strictEqual(titleKey('Hackathon 2026'), null, 'short/generic titles must not key');
+    assert.strictEqual(titleKey('AI Hack'), null);
+    assert.strictEqual(titleKey(null), null);
+    assert.ok(titleKey('RootAccess Hardware Hackathon'));
+  });
+
+  check('dedupe: two editions of one event stay separate', () => {
+    const a = { title: 'Codefest National Hackathon', startDate: '2026-03-01' };
+    const b = { title: 'Codefest National Hackathon', startDate: '2027-03-01' };
+    assert.strictEqual(isSameEvent(a, b), false, 'different years are different editions');
+    assert.strictEqual(isSameEvent(a, { ...a }), true);
+    // Same event, one side simply has no date: not a contradiction.
+    assert.strictEqual(isSameEvent(a, { title: a.title, startDate: null }), true);
+  });
+
+  check('dedupe: cross-source index matches on title + edition', () => {
+    const index: ExistingIndex = new Map();
+    addToIndex(index, { title: 'RootAccess Hardware Hackathon', startDate: '2026-10-22' });
+    assert.strictEqual(indexHas(index, { title: 'RootAccess Hardware Hackathon', startDate: '2026-10-22' }), true);
+    assert.strictEqual(indexHas(index, { title: 'RootAccess Hardware Hackathon', startDate: '2027-10-22' }), false);
+    assert.strictEqual(indexHas(index, { title: 'Something Else Entirely 2026', startDate: '2026-10-22' }), false);
+    assert.strictEqual(indexHas(index, { title: 'Hackathon 2026', startDate: '2026-10-22' }), false);
+  });
+
+  check('dates: a devpost-style range parses, including a year rollover', () => {
+    const now = new Date('2026-10-22T00:00:00Z');
+    assert.deepStrictEqual(parseDateRange('Aug 31 - Oct 23, 2026', now), { startDate: '2026-08-31', endDate: '2026-10-23' });
+    assert.deepStrictEqual(parseDateRange('Dec 15 - Jan 20, 2027', now), { startDate: '2026-12-15', endDate: '2027-01-20' });
+    assert.deepStrictEqual(parseDateRange('Oct 23, 2026', now), { startDate: null, endDate: '2026-10-23' });
+    assert.deepStrictEqual(parseDateRange('garbage', now), { startDate: null, endDate: null });
+    assert.deepStrictEqual(parseDateRange('', now), { startDate: null, endDate: null });
+    assert.deepStrictEqual(parseDateRange(null, now), { startDate: null, endDate: null });
+  });
+
+  check('structured: malformed payloads yield no events instead of throwing', () => {
+    for (const payload of [null, undefined, {}, { data: null }, { hackathons: 'nope' }, { result: 5 }, []]) {
+      assert.deepStrictEqual(parseDevpost(payload as unknown).events, []);
+    }
+    // A row with no usable title or url is dropped, not stored half-built.
+    const page = parseDevpost({ hackathons: [{ title: '', url: '' }, { title: 'Real Event 2026', url: 'https://x.devpost.com/' }] });
+    assert.strictEqual(page.events.length, 1);
+  });
 
   const mk = (url: string, source: string, organiser: string, title: string) =>
     prisma.hubCandidate.create({
@@ -327,28 +374,18 @@ const vis = (h: string) =>
    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
 
 async function liveChecks() {
-  if (!isFirecrawlConfigured()) {
-    console.log('\n(skipping live checks: FIRECRAWL_URL not set)');
-    return;
-  }
-
-  await checkAsync('search: self-hosted provider returns a well-formed hit list', async () => {
-    // Public engines CAPTCHA and rate-limit this host regularly, which is an
-    // upstream outage rather than a defect here — so the invariant is a
-    // well-formed result, and an empty one must be visibly reported.
-    const hits = await searchWeb('unstop hackathon 2026 India register', 5);
-    if (hits.length === 0) {
-      console.log('    NO HITS — upstream engines are rate-limited/captcha-ed; runDiscovery reports this as an error');
-      assert.ok(Array.isArray(hits));
+  // Only the checks that actually talk to the renderer are conditional now:
+  // structured discovery is plain JSON over public APIs and must be exercised
+  // whether or not a renderer is configured.
+  const rendererOnly = async (name: string, fn: () => Promise<void>) => {
+    if (!isFirecrawlConfigured()) {
+      console.log(`\n(skipping ${name}: FIRECRAWL_URL not set)`);
       return;
     }
-    assert.ok(hits.length > 0, 'expected at least one hit');
-    assert.ok(hits.every((h) => h.url.startsWith('https://')), 'all urls must be https');
-    assert.ok(hits.every((h) => h.title.length > 0), 'all hits need a title');
-    console.log(`    ${hits.length} hits, first: ${hits[0].url.slice(0, 72)}`);
-  });
+    await checkAsync(name, fn);
+  };
 
-  await checkAsync('render: JS-shell listing becomes readable', async () => {
+  await rendererOnly('render: JS-shell listing becomes readable', async () => {
     const plain = await fetchPublicText(LISTING_URL, { timeoutMs: 20000, contentTypes: ['html', 'text'] });
     const plainLen = vis(plain.text);
     const rendered = await fetchHtmlWithRender(LISTING_URL, { timeoutMs: 30000 });
@@ -358,7 +395,7 @@ async function liveChecks() {
     assert.ok(renderedLen > plainLen * 2, `render should more than double text (${plainLen} -> ${renderedLen})`);
   });
 
-  await checkAsync('renderer: refuses internal addresses (SSRF bypass closed)', async () => {
+  await rendererOnly('renderer: refuses internal addresses (SSRF bypass closed)', async () => {
     // The renderer itself will fetch anything it is handed, so the guard has to
     // run before the request leaves the app.
     assert.strictEqual(await renderHtml('http://127.0.0.1:9/x'), null, 'loopback must be refused');
@@ -366,7 +403,7 @@ async function liveChecks() {
     assert.strictEqual(await renderHtml('http://unstop.com/hackathons'), null, 'non-https must be refused');
   });
 
-  await checkAsync('renderer: health probe reports reachability', async () => {
+  await rendererOnly('renderer: health probe reports reachability', async () => {
     assert.strictEqual(await rendererHealthy(), true, 'live renderer must report healthy');
     const prev = process.env.FIRECRAWL_URL;
     delete process.env.FIRECRAWL_URL;
@@ -374,7 +411,7 @@ async function liveChecks() {
     if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
   });
 
-  await checkAsync('render: a THROWING plain fetch falls back to the renderer', async () => {
+  await rendererOnly('render: a THROWING plain fetch falls back to the renderer', async () => {
     // application/json makes the plain path reject on content type, which is a
     // throw rather than a status — the exact case that used to lose the page.
     const r = await fetchHtmlWithRender('https://jsonplaceholder.typicode.com/todos/1', { timeoutMs: 8000 });
@@ -409,19 +446,19 @@ async function liveChecks() {
     assert.ok(ms < 3000, `must return immediately, took ${ms}ms`);
   });
 
-  await checkAsync('render: a page that already renders is not re-rendered', async () => {
+  await rendererOnly('render: a page that already renders is not re-rendered', async () => {
     const r = await fetchHtmlWithRender('https://mlh.io/events', { timeoutMs: 25000 });
     assert.strictEqual(r.rendered, false, 'already-readable page must not pay for a render');
   });
 
-  await checkAsync('discovery: rendered listing yields real event links, junk rejected', async () => {
+  await rendererOnly('discovery: rendered listing yields real event links, junk rejected', async () => {
     // This one genuinely needs to render, so it claims its own budget instead of
     // inheriting whatever earlier checks spent.
     resetRenderBudget();
     const html = await renderHtml(LISTING_URL);
     assert.ok(html, 'render returned html');
     const links = extractEventLinks(html as string, LISTING_URL);
-    const matcher = SEARCH_SOURCES.unstop.isEventUrl;
+    const matcher = PLATFORM_MATCHERS.unstop.isEventUrl;
     const kept = links.filter((l) => {
       try {
         return matcher(new URL(l.url));
@@ -444,18 +481,30 @@ async function liveChecks() {
 
   await checkAsync('sources: renderable platforms become crawlable with a renderer', async () => {
     await ensureHubSources();
-    const rows = await prisma.hubSource.findMany({
-      where: { key: { in: ['unstop', 'hackerearth', 'devfolio'] } },
+    // Unstop/Devfolio/Devpost are API-served now; only HackerEarth still needs
+    // a renderer to become crawlable, and reverts to MANUAL without one.
+    const apiRows = await prisma.hubSource.findMany({
+      where: { key: { in: ['unstop', 'devfolio', 'devpost'] } },
       select: { key: true, method: true },
     });
-    assert.strictEqual(rows.length, 3);
-    for (const r of rows) assert.strictEqual(r.method, 'PAGE', `${r.key} should be PAGE`);
-    // and revert to MANUAL without a renderer
+    assert.strictEqual(apiRows.length, 3);
+    for (const r of apiRows) assert.strictEqual(r.method, 'API', `${r.key} should be API`);
+
+    // This one is about the renderer flip, so it sets its own precondition
+    // rather than inheriting whatever the suite was started with.
     const prev = process.env.FIRECRAWL_URL;
+    process.env.FIRECRAWL_URL = 'http://127.0.0.1:3002';
+    await ensureHubSources();
+    const rows = await prisma.hubSource.findMany({
+      where: { key: 'hackerearth' },
+      select: { key: true, method: true },
+    });
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].method, 'PAGE', 'hackerearth should be PAGE with a renderer');
     delete process.env.FIRECRAWL_URL;
     await ensureHubSources();
     const off = await prisma.hubSource.findMany({
-      where: { key: { in: ['unstop', 'hackerearth', 'devfolio'] } },
+      where: { key: 'hackerearth' },
       select: { key: true, method: true },
     });
     if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
@@ -463,34 +512,75 @@ async function liveChecks() {
     for (const r of off) assert.strictEqual(r.method, 'MANUAL', `${r.key} should stay MANUAL without a renderer`);
   });
 
-  // ─── E. Search -> candidate insertion ───
-  await checkAsync('discovery: search stage degrades loudly, never silently', async () => {
-    // Public search engines rate-limit and CAPTCHA freely; that must surface as
-    // a reported error, because zero-results-with-no-error looks exactly like a
-    // healthy run that simply found nothing.
-    await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
-    const res = await discoverFromSearch('unstop');
-    assert.ok(typeof res.discovered === 'number' && typeof res.duplicates === 'number');
-    console.log(`    discoverFromSearch(unstop) -> discovered=${res.discovered}`);
-    if (res.discovered === 0) {
-      assert.ok(res.error, 'zero results must be reported as an error, not swallowed');
-      console.log(`    reported: ${String(res.error).slice(0, 76)}`);
+  // ─── E. Structured (first-party API) discovery ───
+  await checkAsync('structured: every source returns well-formed events', async () => {
+    for (const key of Object.keys(STRUCTURED_SOURCES)) {
+      const page = await fetchStructuredPage(key, 1);
+      assert.ok(!page.error, `${key} fetch failed: ${page.error}`);
+      assert.ok(page.events.length > 0, `${key} returned no events`);
+      for (const e of page.events) {
+        assert.ok(e.url.startsWith('https://'), `${key}: bad url ${e.url}`);
+        assert.ok((e.event.eventName ?? '').length <= 191, `${key}: title exceeds the column`);
+        const iso = /^\d{4}-\d{2}-\d{2}$/;
+        assert.ok(e.event.startDate === null || iso.test(e.event.startDate), `${key}: bad start ${e.event.startDate}`);
+        assert.ok(e.event.registrationDeadline === null || iso.test(e.event.registrationDeadline), `${key}: bad deadline`);
+        assert.ok([null, 'ONLINE', 'OFFLINE', 'HYBRID'].includes(e.event.mode), `${key}: bad mode ${e.event.mode}`);
+        assert.ok(e.event.teamMin === null || e.event.teamMin > 0, `${key}: bad teamMin`);
+      }
+      const verified = page.events.filter((e) => wouldAutoVerify(e.event, STRUCTURED_SOURCES[key].sourceType)).length;
+      console.log(`    ${key}: ${page.events.length} events, ${verified} would auto-verify`);
     }
-    const rows = await prisma.hubCandidate.findMany({
-      where: { source: 'unstop' },
-      select: { url: true, sourceType: true, status: true },
-    });
-    assert.ok(rows.every((r: { sourceType: string }) => r.sourceType === 'UNSTOP'));
-    assert.ok(rows.every((r: { sourceType: string }) => r.sourceType === 'UNSTOP'));
-    assert.ok(rows.every((r: { status: string }) => r.status === 'DISCOVERED'));
-    assert.ok(
-      rows.every((r: { url: string }) => /unstop\.com\/hackathons\/[^/]+$/.test(r.url)),
-      'all candidates must be individual event pages, not the listing',
-    );
-    assert.ok(
-      rows.every((r: { url: string }) => !/unstop\.com\/hackathons$/.test(r.url)),
-      'listing page must never be ingested',
-    );
+  });
+
+  await checkAsync('structured: unstop supplies every mandatory field', async () => {
+    // This is the whole reason search was dropped: the platform publishes what
+    // the extractor used to guess at, so completeness is a platform property.
+    const page = await fetchStructuredPage('unstop', 1);
+    const complete = page.events.filter((e) => mandatoryMissing(e.event).length === 0);
+    const rate = complete.length / Math.max(page.events.length, 1);
+    console.log(`    unstop complete rows: ${complete.length}/${page.events.length} (${Math.round(rate * 100)}%)`);
+    assert.ok(rate >= 0.8, `expected >=80% complete unstop rows, got ${Math.round(rate * 100)}%`);
+  });
+
+  await checkAsync('structured: an unknown source reports an error instead of throwing', async () => {
+    const bad = await fetchStructuredPage('no-such-source', 1);
+    assert.ok(bad.error, 'must report an error');
+    assert.strictEqual(bad.events.length, 0);
+  });
+
+  await checkAsync('structured: discovery stores mapped events, never re-extracts them', async () => {
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devpost' } });
+    const res = await discoverFromStructured('devpost');
+    const rows = await prisma.hubCandidate.findMany({ where: { source: 'devpost' } });
+    assert.ok(rows.length > 0, 'expected devpost candidates');
+    // Status is decided at insert, so none may sit in the DISCOVERED state that
+    // would send them back through the fetch-and-AI extractor.
+    assert.ok(rows.every((r: { status: string }) => r.status !== 'DISCOVERED'), 'structured rows must not need extraction');
+    assert.ok(rows.every((r: { confidence: number | null }) => r.confidence !== null), 'confidence must be set');
+    assert.ok(rows.every((r: { extracted: unknown }) => r.extracted !== null), 'extracted payload must be stored');
+    console.log(`    devpost: discovered=${res.discovered} duplicates=${res.duplicates}`);
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devpost' } });
+  });
+
+  await checkAsync('structured: re-running the same source adds nothing', async () => {
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devpost' } });
+    const first = await discoverFromStructured('devpost');
+    const second = await discoverFromStructured('devpost');
+    const stored = await prisma.hubCandidate.count({ where: { source: 'devpost' } });
+    console.log(`    devpost: first=${first.discovered} second=${second.discovered} stored=${stored}`);
+    assert.strictEqual(second.discovered, 0, 'a re-run must insert nothing');
+    assert.ok(second.duplicates >= first.discovered, 'the re-run must account for the existing rows as duplicates');
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devpost' } });
+  });
+
+  await checkAsync('structured: pages never duplicate each other', async () => {
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devfolio' } });
+    await discoverFromStructured('devfolio');
+    const rows = await prisma.hubCandidate.findMany({ where: { source: 'devfolio' }, select: { url: true } });
+    const urls = rows.map((r: { url: string }) => r.url);
+    console.log(`    devfolio: ${urls.length} rows across pages, ${urls.length - new Set(urls).size} duplicates`);
+    assert.strictEqual(new Set(urls).size, urls.length, 'duplicate urls across pages');
+    await prisma.hubCandidate.deleteMany({ where: { source: 'devfolio' } });
   });
 
   await checkAsync('registration: page-as-registration can only ever hit event pages', async () => {
@@ -511,30 +601,32 @@ async function liveChecks() {
     await prisma.hubCandidate.deleteMany({});
   });
 
-  await checkAsync('discovery: crawls events even when the search backend is dead', async () => {
-    // The search stage is best-effort (engines CAPTCHA this IP regularly). The
-    // deterministic crawl+render path is what discovery must actually rely on.
+  await checkAsync('discovery: structured sources carry the run with no renderer', async () => {
+    // The APIs are plain JSON: discovery must work with FIRECRAWL_URL unset.
+    const prev = process.env.FIRECRAWL_URL;
+    delete process.env.FIRECRAWL_URL;
     await prisma.hubCandidate.deleteMany({});
     const res = await runDiscovery();
     const bySource = await prisma.hubCandidate.groupBy({ by: ['source'], _count: { _all: true } });
+    if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
     const counts = bySource.map((b: any) => `${b.source}=${b._count._all}`).join(' ');
-    console.log(`    discovered=${res.discovered} in a run with search degraded: ${counts}`);
-    assert.ok(res.discovered > 0, 'a dead search backend must not empty the run');
-    const renderable = await prisma.hubCandidate.count({
-      where: { source: { in: ['unstop', 'devfolio', 'hackerearth'] } },
-    });
-    assert.ok(renderable > 0, 'renderable sources must still yield events via crawl');
+    console.log(`    discovered=${res.discovered} with no renderer configured: ${counts}`);
+    assert.ok(res.discovered > 0, 'discovery must not depend on the renderer');
+    for (const key of ['unstop', 'devpost']) {
+      const n = await prisma.hubCandidate.count({ where: { source: key } });
+      assert.ok(n > 0, `${key} must yield events without a renderer`);
+    }
     await prisma.hubCandidate.deleteMany({});
   });
 
   await checkAsync('discovery: re-running never duplicates a URL', async () => {
-    // Search results legitimately vary between calls, so the invariant is not a
-    // fixed row count — it is that no event URL is ever ingested twice.
+    // The invariant is not a fixed row count — the upstream collection changes
+    // daily — it is that no event URL is ever ingested twice.
     const before = await prisma.hubCandidate.findMany({
       where: { source: 'unstop' },
       select: { url: true },
     });
-    await discoverFromSearch('unstop');
+    await discoverFromStructured('unstop');
     const after = await prisma.hubCandidate.findMany({
       where: { source: 'unstop' },
       select: { url: true },
@@ -547,8 +639,48 @@ async function liveChecks() {
     console.log(`    ${before.length} -> ${after.length} rows, no duplicates`);
   });
 
+  await checkAsync('dedupe: an event already listed elsewhere is not ingested twice', async () => {
+    // The real cross-source case: the same hackathon published from one platform
+    // must not be re-created when a second platform lists it.
+    const actor = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
+    assert.ok(actor, 'cross-source check needs an ADMIN user');
+    await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+    await discoverFromStructured('unstop');
+    const seed = await prisma.hubCandidate.findFirst({ where: { source: 'unstop' } });
+    assert.ok(seed, 'need a real unstop row to seed with');
+    const seedExtracted = (seed.extracted ?? {}) as { startDate?: string | null };
+    const seedUrl = seed.url;
+    const seedTitle = seed.title as string;
+
+    // Pretend it arrived from a different platform and was published.
+    const published = await prisma.opportunity.create({
+      data: {
+        title: seedTitle,
+        category: 'Hackathon',
+        organizer: 'Some Other Platform',
+        sourceType: 'DEVPOST',
+        status: 'APPROVED',
+        showInHub: true,
+        startDate: seedExtracted.startDate ? new Date(`${seedExtracted.startDate}T00:00:00.000Z`) : null,
+        createdById: actor.id,
+      },
+    });
+    await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+
+    const res = await discoverFromStructured('unstop');
+    const again = await prisma.hubCandidate.findFirst({ where: { url: seedUrl } });
+    console.log(`    re-ran unstop: discovered=${res.discovered} duplicates=${res.duplicates}`);
+    assert.strictEqual(again, null, 'an event already published from another source must not be re-ingested');
+    assert.ok(res.duplicates > 0, 'the duplicate must be counted, not silently dropped');
+
+    await prisma.opportunity.delete({ where: { id: published.id } });
+    await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+  });
+
   // cleanup
   await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+  await prisma.hubCandidate.deleteMany({ where: { source: 'devpost' } });
+  await prisma.hubCandidate.deleteMany({ where: { source: 'devfolio' } });
 }
 
 dedupeChecks()

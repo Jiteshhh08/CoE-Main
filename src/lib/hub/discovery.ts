@@ -3,7 +3,10 @@ import prisma from '@/lib/prisma';
 import { clipDbString, cleanEventTitle, normalizeName } from '@/lib/hackathon-hub';
 import { ensureHubSources } from './sources';
 import { fetchPublicText } from './fetch-guard';
-import { fetchHtmlWithRender, isFirecrawlConfigured, searchWeb } from './firecrawl';
+import { fetchHtmlWithRender } from './firecrawl';
+import { STRUCTURED_SOURCES, fetchStructuredPage, isStructuredSource } from './structured';
+import { addToIndex, indexHas, loadExistingIndex, type ExistingIndex } from './dedupe';
+import { mandatoryMissing, scoreConfidence, wouldAutoVerify } from './confidence';
 
 const FETCH_TIMEOUT_MS = 15000;
 const POLITENESS_DELAY_MS = 1500;
@@ -182,7 +185,7 @@ const DEVFORUM_RESERVED_SLUGS = new Set(['applied', 'open', 'past', 'upcoming', 
 // Unstop/Devfolio/Hack2Skill host registration ON the event page, so for these
 // the page URL is a legitimate registrationUrl — see aiFill().
 export function isIndividualEventPage(url: string, sourceKey: string): boolean {
-  const matcher = SEARCH_SOURCES[sourceKey]?.isEventUrl;
+  const matcher = PLATFORM_MATCHERS[sourceKey]?.isEventUrl;
   if (!matcher) return false;
   try {
     return matcher(new URL(url));
@@ -193,30 +196,31 @@ export function isIndividualEventPage(url: string, sourceKey: string): boolean {
 
 /** The platform registers on the event page itself (no separate signup link). */
 export function registersOnEventPage(sourceKey: string): boolean {
-  return SEARCH_SOURCES[sourceKey]?.registrationOnPage === true;
+  return PLATFORM_MATCHERS[sourceKey]?.registrationOnPage === true;
 }
 
-// Search-driven discovery. Some platforms are unreachable by crawling: Unstop's
-// /hackathons listing answers with a cookie wall (416 chars of "Please Wait")
-// to both plain fetch AND a JS render. Their individual event pages render fine,
-// so the reliable route is: search -> keep only event URLs -> extract the page.
-// registrationOnPage: the platform hosts sign-up ON the event detail page
-// (Unstop's Apply button, Devfolio's Register). For these, the page URL IS the
-// registration URL — not a guess, a property of the platform.
-export const SEARCH_SOURCES: Record<
+// Platform URL matchers + registration semantics. These platforms host sign-up
+// ON the event detail page (Unstop's Apply button, Devfolio's Register), so the
+// page URL IS the registration URL — a property of the platform, not a guess.
+// Discovery no longer searches: each of these now has a first-party JSON API
+// (see ./structured), and only the fallback crawler still needs the matchers.
+export const PLATFORM_MATCHERS: Record<
   string,
-  { sourceType: string; queries: string[]; isEventUrl: (u: URL) => boolean; registrationOnPage?: boolean }
+  { sourceType: string; isEventUrl: (u: URL) => boolean; registrationOnPage?: boolean }
 > = {
   unstop: {
     sourceType: 'UNSTOP',
     registrationOnPage: true,
-    queries: ['unstop hackathon 2026 India register', 'unstop.com hackathon online students 2026'],
-    isEventUrl: (u) => u.hostname.endsWith('unstop.com') && /^\/hackathons\/[^/]+$/i.test(u.pathname),
+    // Unstop publishes events under both /hackathons/ and /competitions/; the
+    // API returns the canonical page for each, so a matcher that only knew
+    // about /hackathons/ would reject real events (and would block the
+    // page-as-registration rule from applying to them).
+    isEventUrl: (u) =>
+      u.hostname.endsWith('unstop.com') && /^\/(hackathons|competitions)\/[^/]+$/i.test(u.pathname),
   },
   devfolio: {
     sourceType: 'DEVFOLIO',
     registrationOnPage: true,
-    queries: ['devfolio hackathon 2026 open register', 'devfolio.co hackathon India 2026'],
     // Devfolio events live on subdomains (biosv2.devfolio.co), not /slug paths.
     // "/hackathons/applied" is a personal dashboard tab, not an event.
     isEventUrl: (u) => {
@@ -230,64 +234,118 @@ export const SEARCH_SOURCES: Record<
   hack2skill: {
     sourceType: 'HACK2SKILL',
     registrationOnPage: true,
-    queries: ['hack2skill hackathon 2026 register'],
     isEventUrl: (u) =>
       u.hostname.endsWith('hack2skill.com') && /^\/(hackathons|competitions)\/[^/]+$/i.test(u.pathname),
   },
 };
 
-export async function discoverFromSearch(
+/**
+ * Everything already known, keyed by normalized title, so a thousand incoming
+ * events cost a thousand map lookups instead of a thousand queries.
+ */
+async function buildExistingIndex(): Promise<{ titles: ExistingIndex; urls: Set<string> }> {
+  const [opportunities, candidates] = await Promise.all([
+    prisma.opportunity.findMany({
+      where: { showInHub: true },
+      select: { title: true, startDate: true },
+      take: 5000,
+    }),
+    prisma.hubCandidate.findMany({ select: { url: true, title: true, extracted: true }, take: 5000 }),
+  ]);
+  return {
+    titles: await loadExistingIndex(opportunities, candidates),
+    // Preloaded so a 3,000-event source costs one query instead of 3,000.
+    urls: new Set(candidates.map((c: { url: string }) => c.url)),
+  };
+}
+
+/**
+ * Pull one structured source into candidates.
+ *
+ * The mapped event is stored on the candidate and scored immediately, so these
+ * never re-enter the fetch-and-AI extraction path — the data is already
+ * complete and authoritative.
+ */
+export async function discoverFromStructured(
   sourceKey: string,
-  limitPerQuery = 10,
   sharedSeen?: Set<string>,
+  sharedIndex?: { titles: ExistingIndex; urls: Set<string> },
 ): Promise<{ discovered: number; duplicates: number; error: string | null }> {
-  const cfg = SEARCH_SOURCES[sourceKey];
-  // No config or no provider -> silently nothing. Discovery must not fail just
-  // because the optional renderer/search service is absent.
-  if (!cfg || !isFirecrawlConfigured()) return { discovered: 0, duplicates: 0, error: null };
+  const cfg = STRUCTURED_SOURCES[sourceKey];
+  if (!cfg) return { discovered: 0, duplicates: 0, error: `unknown structured source ${sourceKey}` };
 
   const seenTitles = sharedSeen ?? (await knownTitleKeys());
+  const store = sharedIndex ?? (await buildExistingIndex());
+  const index = store.titles;
+  const errors: string[] = [];
+  const nativeSeen = new Set<string>();
   let discovered = 0;
   let duplicates = 0;
-  const errors: string[] = [];
-  for (const query of cfg.queries) {
-    const hits = await searchWeb(query, limitPerQuery);
-    if (hits.length === 0) {
-      errors.push(`${sourceKey}: search returned nothing for "${query}"`);
-      continue;
+
+  for (let page = 1; page <= cfg.maxPages; page++) {
+    const result = await fetchStructuredPage(sourceKey, page);
+    if (result.error) {
+      errors.push(result.error);
+      break;
     }
-    for (const hit of hits) {
-      let parsed: URL;
-      try {
-        parsed = new URL(hit.url);
-      } catch {
-        continue;
-      }
-      if (!cfg.isEventUrl(parsed)) continue;
-      if (NOISE.test(hit.title) || LISTING_TITLES.test(hit.title)) continue;
-      const url = hit.url.slice(0, 512);
-      const existing = await prisma.hubCandidate.findUnique({ where: { url } });
-      if (existing) continue;
-      const title = cleanEventTitle(hit.title);
-      const key = normalizeName(title);
-      if (key && seenTitles.has(key)) {
+    // An empty page means we walked past the end of the collection.
+    if (result.events.length === 0) break;
+
+    for (const item of result.events) {
+      const event = item.event;
+      const title = event.eventName;
+      if (!title || !item.url) continue;
+      if (NOISE.test(title) || LISTING_TITLES.test(title)) continue;
+
+      // The same native id twice inside one payload.
+      if (nativeSeen.has(item.nativeId)) {
         duplicates += 1;
         continue;
       }
-      seenTitles.add(key);
+      nativeSeen.add(item.nativeId);
+
+      // Already stored under this URL.
+      if (store.urls.has(item.url)) {
+        duplicates += 1;
+        continue;
+      }
+      store.urls.add(item.url);
+
+      // Same edition already known from ANY source — this is what stops one
+      // hackathon appearing once per platform.
+      const identity = { title, startDate: event.startDate, organiser: event.organiser };
+      if (indexHas(index, identity)) {
+        duplicates += 1;
+        continue;
+      }
+      addToIndex(index, identity);
+      const key = normalizeName(title);
+      if (key) seenTitles.add(key);
+
+      const missing = mandatoryMissing(event);
       await prisma.hubCandidate.create({
         data: {
-          url,
+          url: item.url,
           source: sourceKey,
           sourceType: cfg.sourceType,
-          status: 'DISCOVERED',
-          title: clipDbString(title, 191) ?? url.slice(0, 191),
+          status: wouldAutoVerify(event, cfg.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW',
+          title: clipDbString(title, 191) ?? item.url.slice(0, 191),
+          extracted: { ...event },
+          confidence: scoreConfidence(event, cfg.sourceType),
+          error: missing.length > 0 ? `missing: ${missing.join(', ')}` : null,
         },
       });
-      discovered++;
+      discovered += 1;
     }
+
+    if (page < cfg.maxPages) await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
   }
-  return { discovered, duplicates, error: errors.length > 0 ? errors.join('; ').slice(0, 1900) : null };
+
+  const message = errors.length > 0 ? errors.join('; ').slice(0, 1900) : null;
+  await prisma.hubSource
+    .update({ where: { key: sourceKey }, data: { lastRunAt: new Date(), lastError: message } })
+    .catch(() => undefined);
+  return { discovered, duplicates, error: message };
 }
 
 export async function runDiscovery(): Promise<DiscoveryResult> {
@@ -316,28 +374,28 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
     if (sitemap.error) errors.push(sitemap.error);
   }
 
-  // Search-first stage for platforms whose listing pages are JS shells or
-  // cookie-walled (they sit at method=MANUAL, so they are not in `sources`).
-  // Runs only when a self-hosted search provider is configured.
-  if (isFirecrawlConfigured()) {
-    const enabledKeys = new Set(
-      (
-        await prisma.hubSource.findMany({
-          where: { enabled: true },
-          select: { key: true },
-        })
-      ).map((s: { key: string }) => s.key),
-    );
-    for (const key of Object.keys(SEARCH_SOURCES)) {
-      if (!enabledKeys.has(key)) continue;
-      const found = await discoverFromSearch(key, 10, seenTitles);
-      discovered += found.discovered;
-      duplicatesSkipped += found.duplicates;
-      if (found.error) errors.push(found.error);
-    }
+  // Structured stage: first-party JSON APIs, one page-set per source.
+  // This replaces search entirely. No renderer and no model are involved — the
+  // platforms publish the fields directly, at far higher coverage than a search
+  // snippet ever gave (Unstop: 100% of mandatory fields on every row).
+  const existingIndex = await buildExistingIndex();
+  const enabledKeys = new Set(
+    (
+      await prisma.hubSource.findMany({ where: { enabled: true }, select: { key: true } })
+    ).map((s: { key: string }) => s.key),
+  );
+  for (const key of Object.keys(STRUCTURED_SOURCES)) {
+    if (!enabledKeys.has(key)) continue;
+    const found = await discoverFromStructured(key, seenTitles, existingIndex);
+    discovered += found.discovered;
+    duplicatesSkipped += found.duplicates;
+    if (found.error) errors.push(found.error);
   }
 
   for (const source of sources) {
+    // Structured sources are served by their JSON API above; crawling their
+    // listings would only re-derive a worse copy of the same events.
+    if (isStructuredSource(source.key)) continue;
     const seedUrl = (source as { key: string }).key
       ? seedUrlFor(source.key as string)
       : null;
@@ -349,7 +407,7 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
       const hash = sha256(normalizeContent(html));
       // Apply the source's event-URL matcher to crawled links too. Without it
       // the rendered listings leak index pages ("Competitions", "/hackathons/applied").
-      const matcher = SEARCH_SOURCES[source.key as string]?.isEventUrl;
+      const matcher = PLATFORM_MATCHERS[source.key as string]?.isEventUrl;
       for (const link of extractEventLinks(html, seedUrl)) {
         if (matcher) {
           try {

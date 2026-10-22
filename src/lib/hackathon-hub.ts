@@ -16,6 +16,7 @@ export const HUB_SOURCE_TYPES = [
   'MLH',
   'COLLEGE_WEBSITE',
   'INDIAHACKATHONS',
+  'DEVPOST',
   'GOVERNMENT',
   'SOCIAL_MEDIA',
   'ADMIN',
@@ -32,6 +33,30 @@ export const HUB_VERIFICATION_STATES = [
 ] as const;
 
 export const HUB_MODES = ['ONLINE', 'OFFLINE', 'HYBRID'] as const;
+
+// Human-facing source names. The Hub has to say where an event came from, and
+// "UNSTOP" is a database token, not a sentence.
+const HUB_SOURCE_LABELS: Record<string, string> = {
+  UNSTOP: 'Unstop',
+  DEVFOLIO: 'Devfolio',
+  DEVPOST: 'Devpost',
+  HACKEREARTH: 'HackerEarth',
+  HACK2SKILL: 'Hack2Skill',
+  MLH: 'Major League Hacking',
+  INDIAHACKATHONS: 'India Hackathons',
+  COLLEGE_WEBSITE: 'College website',
+  OFFICIAL_WEBSITE: 'Official website',
+  GOVERNMENT: 'Government portal',
+  SOCIAL_MEDIA: 'Social media',
+  GOOGLE_SHEET: 'Google Sheet',
+  ADMIN: 'Added by admin',
+  OTHER: 'Other',
+};
+
+export function hubSourceLabel(sourceType: string | null | undefined): string {
+  if (!sourceType) return 'Added by admin';
+  return HUB_SOURCE_LABELS[sourceType] ?? sourceType.replace(/_/g, ' ').toLowerCase();
+}
 
 export function getRegistrationStatus(deadline: Date | string | null | undefined, now = new Date()): HubRegistrationStatus {
   if (!deadline) return 'UNKNOWN';
