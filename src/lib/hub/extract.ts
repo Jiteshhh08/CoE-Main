@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256, isIndividualEventPage, registersOnEventPage } from './discovery';
-import { scoreConfidence, mandatoryMissing, HUB_VERIFY_THRESHOLD } from './confidence';
+import { deriveRegistrationDeadline, scoreConfidence, mandatoryMissing, HUB_VERIFY_THRESHOLD } from './confidence';
 import { fetchHtmlWithRender } from './firecrawl';
 import { HUB_CITIES, findHubCityInText } from './cities';
 import {
@@ -430,6 +430,7 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       ) {
         extracted.registrationUrl = candidate.url;
       }
+      extracted = deriveRegistrationDeadline(extracted);
       const confidence = scoreConfidence(extracted, candidate.sourceType);
       const missing = mandatoryMissing(extracted);
       const pageHash = sha256(normalizeContent(html));

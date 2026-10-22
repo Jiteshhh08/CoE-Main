@@ -10,7 +10,16 @@ import type { ExtractedEvent } from './extract';
 
 // Auto-validation threshold: a candidate needs every mandatory field AND this
 // score to skip human review.
-export const HUB_VERIFY_THRESHOLD = 0.9;
+//
+// 0.85, not 0.90, because completeness is already enforced separately by
+// mandatoryMissing(). A complete aggregator listing scores exactly 0.85
+// (0.40 base + 0.30 all-six + 0.15 aggregator) and can only climb on bonuses
+// that are decoration, not information: city and prize. At 0.90 that meant a
+// Devfolio event with a real organiser, both dates, mode and a working signup
+// link was rejected for having no prize pool — 71 candidates sat in
+// NEEDS_REVIEW with nothing missing. Complete + known source is the bar; a
+// trusted source still scores 0.90 above an aggregator's 0.85.
+export const HUB_VERIFY_THRESHOLD = 0.85;
 
 // Sources we trust enough to auto-verify.
 export const TRUSTED_SOURCES = ['OFFICIAL_WEBSITE', 'GOVERNMENT', 'ADMIN'];
@@ -52,6 +61,12 @@ export function mandatoryMissing(e: ExtractedEvent): string[] {
   if (!e.registrationDeadline) missing.push('registrationDeadline');
   if (!e.registrationUrl) missing.push('registrationUrl');
   if (!e.mode) missing.push('mode');
+  // An in-person event with no location is not publishable. This used to be
+  // enforced only by arithmetic — an offline event without a city scored 0.87,
+  // just under the old 0.90 bar — so lowering the bar would have silently let
+  // through cards that say OFFLINE and nothing else. It is a real requirement,
+  // so it is stated as one.
+  if ((e.mode === 'OFFLINE' || e.mode === 'HYBRID') && !e.city) missing.push('city');
   return missing;
 }
 
@@ -61,4 +76,21 @@ export function mandatoryMissing(e: ExtractedEvent): string[] {
  */
 export function wouldAutoVerify(e: ExtractedEvent, sourceType: string): boolean {
   return mandatoryMissing(e).length === 0 && scoreConfidence(e, sourceType) >= HUB_VERIFY_THRESHOLD;
+}
+
+/**
+ * Registration deadlines are the field platforms omit most often — Devpost and
+ * Devfolio publish a submission end, indiahackathons publishes only the event
+ * date, and MLH publishes neither. Treating it as mandatory rejected otherwise
+ * complete events, so extraction burned a fetch and an AI call to reach
+ * NEEDS_REVIEW every time.
+ *
+ * Falling back to the start date is not a guess about the organiser: it is the
+ * one deadline that is certainly true, because registration cannot run past the
+ * event itself. Only applied when the source gave us a start date and no
+ * deadline of its own.
+ */
+export function deriveRegistrationDeadline(e: ExtractedEvent): ExtractedEvent {
+  if (e.registrationDeadline || !e.startDate) return e;
+  return { ...e, registrationDeadline: e.startDate };
 }

@@ -39,7 +39,7 @@ import {
 } from '../../src/lib/hub/discovery';
 import { STRUCTURED_SOURCES, fetchStructuredPage, parseDateRange, parseDevpost } from '../../src/lib/hub/structured';
 import { addToIndex, indexHas, isSameEvent, titleKey, type ExistingIndex } from '../../src/lib/hub/dedupe';
-import { wouldAutoVerify } from '../../src/lib/hub/confidence';
+import { deriveRegistrationDeadline, wouldAutoVerify } from '../../src/lib/hub/confidence';
 import { ensureHubSources } from '../../src/lib/hub/sources';
 import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
 import { cleanEventTitle } from '../../src/lib/hackathon-hub';
@@ -135,10 +135,16 @@ check('confidence: aggregators with all six fields + city + prize do verify', ()
   }
 });
 
-check('confidence: complete but no city/prize stays in review for aggregators', () => {
-  const c = scoreConfidence(fullEvent({ city: null, prizePool: null }), 'UNSTOP');
-  assert.strictEqual(c, 0.85);
-  assert.ok(c < HUB_VERIFY_THRESHOLD);
+check('confidence: complete aggregator verifies without city or prize', () => {
+  // These two used to be required to clear the bar, which meant a Devfolio event
+  // with a real organiser, both dates, mode and a signup link was rejected for
+  // having no prize pool. City and prize are decoration; completeness is the gate.
+  const c = scoreConfidence(fullEvent({ prizePool: null }), 'UNSTOP');
+  assert.strictEqual(c, 0.88);
+  assert.ok(c >= HUB_VERIFY_THRESHOLD, 'a complete listing must not be held back by decoration fields');
+  assert.strictEqual(wouldVerify(fullEvent({ prizePool: null }), 'UNSTOP'), true);
+  // Online needs no city, so it clears the bar with neither bonus.
+  assert.strictEqual(wouldVerify(fullEvent({ city: null, prizePool: null, mode: 'ONLINE' }), 'UNSTOP'), true);
 });
 
 check('confidence: unknown source gets no tier bonus', () => {
@@ -311,6 +317,64 @@ async function rankingChecks() {
     const attendable = inPerson.filter((e) => isAttendable(e));
     assert.ok(attendable.length > 0, 'offline Unstop rows must survive the India gate');
     console.log(`    ${attendable.length}/${inPerson.length} offline/hybrid rows are attendable in person`);
+  });
+
+  await checkAsync('gate: a missing deadline falls back to the start date', async () => {
+    const base = { startDate: '2026-11-01', registrationDeadline: null } as never;
+    assert.strictEqual(deriveRegistrationDeadline(base).registrationDeadline, '2026-11-01', 'deadline should fall back to start');
+    const owned = { startDate: '2026-11-01', registrationDeadline: '2026-10-25' } as never;
+    assert.strictEqual(deriveRegistrationDeadline(owned).registrationDeadline, '2026-10-25', 'a real deadline must win');
+    const none = { startDate: null, registrationDeadline: null } as never;
+    assert.strictEqual(deriveRegistrationDeadline(none).registrationDeadline, null, 'no dates at all stays null');
+  });
+
+  await checkAsync('gate: complete + known source verifies, bonuses do not gate', async () => {
+    const complete = {
+      eventName: 'Real Hackathon 2026',
+      organiser: 'Some College',
+      startDate: '2026-11-01',
+      endDate: '2026-11-02',
+      registrationDeadline: '2026-10-30',
+      registrationUrl: 'https://example.com/register',
+      mode: 'ONLINE',
+      city: null,
+      prizePool: null,
+    } as never;
+    // The whole point: a complete aggregator listing with no prize and no city
+    // must clear the bar, because those are decoration.
+    // 0.88: base tier sits on the bar and the online city bonus lifts it clear.
+    assert.ok(scoreConfidence(complete, 'DEVFOLIO') >= HUB_VERIFY_THRESHOLD, 'complete aggregator must clear the bar');
+    assert.ok(wouldAutoVerify(complete, 'DEVFOLIO'), 'complete aggregator must verify');
+    assert.ok(wouldAutoVerify(complete, 'UNSTOP'), 'complete unstop must verify');
+    assert.ok(wouldAutoVerify(complete, 'GOVERNMENT'), 'trusted source must verify');
+    assert.ok(scoreConfidence(complete, 'GOVERNMENT') > scoreConfidence(complete, 'DEVFOLIO'), 'trusted must lead aggregators');
+
+    // Incompleteness still blocks, no matter the source.
+    for (const field of ['eventName', 'organiser', 'startDate', 'registrationDeadline', 'registrationUrl', 'mode']) {
+      const holed = { ...(complete as Record<string, unknown>), [field]: null } as never;
+      assert.ok(!wouldAutoVerify(holed, 'GOVERNMENT'), `missing ${field} must block even a trusted source`);
+    }
+    // An unknown source with everything present is not auto-trusted.
+    assert.ok(!wouldAutoVerify(complete, 'SOMETHING_ELSE'), 'unknown source must not auto-verify');
+  });
+
+  await checkAsync('gate: an in-person event with no location needs review', async () => {
+    const ev = {
+      eventName: 'Some Offline Hack 2026',
+      organiser: 'A College',
+      startDate: '2026-11-01',
+      endDate: '2026-11-02',
+      registrationDeadline: '2026-10-30',
+      registrationUrl: 'https://example.com/register',
+      mode: 'OFFLINE',
+      city: null,
+      prizePool: '10000',
+    } as never;
+    assert.ok(mandatoryMissing(ev).includes('city'), 'offline without a city must be reported missing');
+    assert.ok(!wouldAutoVerify(ev, 'GOVERNMENT'), 'even a trusted source cannot publish a location-less offline event');
+    const online = { ...(ev as Record<string, unknown>), mode: 'ONLINE' } as never;
+    assert.ok(!mandatoryMissing(online).includes('city'), 'online events do not need a city');
+    assert.ok(wouldAutoVerify(online, 'GOVERNMENT'), 'online without a city is fine');
   });
 
   // ── percentile: comparable across sources, honest about missing counts ──

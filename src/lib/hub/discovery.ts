@@ -7,7 +7,7 @@ import { fetchHtmlWithRender } from './firecrawl';
 import { STRUCTURED_SOURCES, fetchStructuredPage, isStructuredSource, type StructuredEvent } from './structured';
 import { isAttendable, isOver, percentileRanks } from './ranking';
 import { addToIndex, indexHas, loadExistingIndex, type ExistingIndex } from './dedupe';
-import { mandatoryMissing, scoreConfidence, wouldAutoVerify } from './confidence';
+import { deriveRegistrationDeadline, mandatoryMissing, scoreConfidence, wouldAutoVerify } from './confidence';
 
 const FETCH_TIMEOUT_MS = 15000;
 const POLITENESS_DELAY_MS = 1500;
@@ -373,16 +373,17 @@ export async function discoverFromStructured(
       const key = normalizeName(title);
       if (key) seenTitles.add(key);
 
-      const missing = mandatoryMissing(event);
+      const complete = deriveRegistrationDeadline(event);
+      const missing = mandatoryMissing(complete);
       await prisma.hubCandidate.create({
         data: {
           url: item.url,
           source: sourceKey,
           sourceType: cfg.sourceType,
-          status: wouldAutoVerify(event, cfg.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW',
+          status: wouldAutoVerify(complete, cfg.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW',
           title: clipDbString(title, 191) ?? item.url.slice(0, 191),
-          extracted: { ...event, popularity: popularity[i], registrations: item.popularity },
-          confidence: scoreConfidence(event, cfg.sourceType),
+          extracted: { ...complete, popularity: popularity[i], registrations: item.popularity },
+          confidence: scoreConfidence(complete, cfg.sourceType),
           error: missing.length > 0 ? `missing: ${missing.join(', ')}` : null,
         },
       });

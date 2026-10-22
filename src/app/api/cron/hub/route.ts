@@ -4,6 +4,9 @@ import { runDiscovery } from '@/lib/hub/discovery';
 import { runExtraction } from '@/lib/hub/extract';
 import { runMonitor } from '@/lib/hub/monitor';
 import { isFirecrawlConfigured, rendererHealthy, renderBudgetState } from '@/lib/hub/firecrawl';
+import prisma from '@/lib/prisma';
+import { deriveRegistrationDeadline, mandatoryMissing, scoreConfidence, wouldAutoVerify } from '@/lib/hub/confidence';
+import type { ExtractedEvent } from '@/lib/hub/extract';
 
 // Hub automation jobs (§33–34, Next.js cron-route form): separate lib stages,
 // one guarded entrypoint with ?job=.
@@ -26,13 +29,13 @@ function isAuthorizedCron(req: NextRequest) {
   return Boolean(user && authorize(user, 'ADMIN'));
 }
 
-// GET /api/cron/hub?job=discover|extract|monitor|all[&batch=1-40][&force=1]
+// GET /api/cron/hub?job=discover|extract|monitor|revalidate|all[&batch=1-40][&force=1]
 export async function GET(req: NextRequest) {
   try {
     if (!isAuthorizedCron(req)) return errorRes('Forbidden', ['Invalid cron secret'], 403);
 
     const job = (req.nextUrl.searchParams.get('job') || 'all').trim().toLowerCase();
-    const valid = ['discover', 'extract', 'monitor', 'all'];
+    const valid = ['discover', 'extract', 'monitor', 'revalidate', 'all'];
     if (!valid.includes(job)) return errorRes('Unknown job', [`Use one of: ${valid.join(', ')}`], 400);
 
     // A batch is a knob, not a constant: clearing a backlog of discovered-but-
@@ -77,6 +80,42 @@ export async function GET(req: NextRequest) {
       if (!guard('extract', 10 * 60_000)) out.extraction = { skipped: 'ran <10m ago' };
       else out.extraction = await stage('extract', () => runExtraction(batch));
     }
+    // Re-score what is already stored — no fetch, no AI. Gates and weights change
+    // far more often than platform payloads do, and without this every change
+    // strands the existing queue at the verdict it got under the old rules.
+    if (job === 'revalidate') {
+      out.revalidation = await stage('revalidate', async () => {
+        const rows = await prisma.hubCandidate.findMany({
+          where: { status: { in: ['VERIFIED', 'NEEDS_REVIEW'] } },
+          select: { id: true, sourceType: true, extracted: true, status: true, confidence: true },
+        });
+        let promoted = 0;
+        let demoted = 0;
+        let deadlineFilled = 0;
+        for (const row of rows) {
+          const stored = (row.extracted ?? {}) as unknown as ExtractedEvent;
+          const event = deriveRegistrationDeadline(stored);
+          if (!stored.registrationDeadline && event.registrationDeadline) deadlineFilled += 1;
+          const missing = mandatoryMissing(event);
+          const confidence = scoreConfidence(event, row.sourceType);
+          const status = wouldAutoVerify(event, row.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW';
+          if (status === row.status && confidence === row.confidence) continue;
+          await prisma.hubCandidate.update({
+            where: { id: row.id },
+            data: {
+              status,
+              confidence,
+              extracted: event as unknown as object,
+              error: missing.length > 0 ? `Missing: ${missing.join(', ')}` : null,
+            },
+          });
+          if (status === 'VERIFIED' && row.status !== 'VERIFIED') promoted += 1;
+          if (status !== 'VERIFIED' && row.status === 'VERIFIED') demoted += 1;
+        }
+        return { scanned: rows.length, promoted, demoted, deadlineFilled };
+      });
+    }
+
     if (job === 'monitor' || job === 'all') {
       if (!guard('monitor', 60 * 60_000)) out.monitor = { skipped: 'ran <1h ago' };
       else if (monitorInFlight) out.monitor = { skipped: 'previous monitor still running' };
