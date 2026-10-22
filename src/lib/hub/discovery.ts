@@ -18,6 +18,9 @@ const HACKATHON_KEYWORDS =
   /hackathon|hackfest|codefest|ideathon|datathon|competition|challenge|contest/i;
 const NOISE =
   /job|recruitment|vacancy|admission|result|merit list|tender|auction/i;
+// A title that names nothing. Seen live: a Devpost challenge literally titled
+// "N/A" with organiser "NA" and a $2 prize.
+const NO_TITLE = /^(n\/?a|nil+|none|null|tba|tbd|untitled|test+|-+|\.+|\?+)$/i;
 // Listing/nav pages, not events (e.g. "Explore hackathons", "Organize a hackathon").
 const LISTING_PATTERNS = [
   /^(explore|organize|organise|all|upcoming|past|open|find|browse|discover|host)\b[\w\s|–—-]*hackathons?\b[\w\s|–—-]*$/i,
@@ -328,7 +331,7 @@ export async function discoverFromStructured(
     const event = item.event;
       const title = event.eventName;
       if (!title || !item.url) continue;
-      if (NOISE.test(title) || LISTING_TITLES.test(title)) continue;
+      if (NOISE.test(title) || LISTING_TITLES.test(title) || NO_TITLE.test(title.trim())) continue;
 
       // Already over. These platforms list years of history — Devfolio's
       // `type=open` handed back 1,969 already-started events out of 2,000 — and

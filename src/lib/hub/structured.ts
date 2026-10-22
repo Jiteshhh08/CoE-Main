@@ -19,7 +19,7 @@
  * registrationDeadline and would sit in NEEDS_REVIEW forever.
  */
 import { cleanEventTitle } from '@/lib/hackathon-hub';
-import { stripHtml, tidy } from './text';
+import { cleanOrganiser, stripHtml, tidy } from './text';
 import type { ExtractedEvent } from './extract';
 
 const FETCH_TIMEOUT_MS = 20_000;
@@ -260,7 +260,7 @@ export function parseUnstop(payload: unknown): StructuredPage {
       popularity: int(row.registerCount),
       event: {
         eventName: title,
-        organiser: tidy(str(organisation?.name, 200), 200),
+        organiser: cleanOrganiser(str(organisation?.name, 200)),
         mode: unstopMode(str(row.region, 20)),
         city: tidy(str(address.city, 80), 80),
         state: tidy(str(address.state, 80), 80),
@@ -328,8 +328,11 @@ function themeNames(value: unknown): string[] {
 function organiserFromDesc(value: unknown): string | null {
   const text = str(value, 4000);
   if (!text) return null;
-  const match = /organi[sz]ed\s+by[:\s]*\**\s*([^\n*|,]{2,80})/i.exec(text);
-  return match ? tidy(match[1], 200) : null;
+  // Stops at sentence punctuation so a description that continues after the
+  // name ("Organized by ISTE! We are…") does not become the organiser, and skips
+  // a leading article so "organized by the X" yields "X" rather than "the".
+  const match = /organi[sz]ed\s+by[:\s]*\**\s*(?:the\s+)?([^\n*|,.;!?]{2,80})/i.exec(text);
+  return cleanOrganiser(match ? match[1] : null);
 }
 
 export function parseDevfolio(payload: unknown): StructuredPage {
@@ -352,8 +355,8 @@ export function parseDevfolio(payload: unknown): StructuredPage {
     // the submission close only when the setting block is absent.
     const regEnds = localDate(setting.reg_ends_at, timezone) ?? endsAt;
     const organiser =
-      tidy(str(row.hackathon_brand, 200), 200) ??
-      tidy(str(row.edition_name, 200), 200) ??
+      cleanOrganiser(str(row.hackathon_brand, 200)) ??
+      cleanOrganiser(str(row.edition_name, 200)) ??
       organiserFromDesc(row.desc);
     events.push({
       url,
@@ -406,7 +409,7 @@ export function parseDevpost(payload: unknown, now: Date = new Date()): Structur
       popularity: int(row.registrations_count),
       event: {
         eventName: title,
-        organiser: tidy(str(row.organization_name, 200), 200),
+        organiser: cleanOrganiser(str(row.organization_name, 200)),
         mode: isOnline ? 'ONLINE' : place ? 'OFFLINE' : null,
         city: parts.length > 0 ? parts[0].slice(0, 80) : null,
         state: parts.length > 1 ? parts[1].slice(0, 80) : null,

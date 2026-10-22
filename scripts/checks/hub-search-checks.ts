@@ -43,6 +43,7 @@ import { wouldAutoVerify } from '../../src/lib/hub/confidence';
 import { ensureHubSources } from '../../src/lib/hub/sources';
 import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
 import { cleanEventTitle } from '../../src/lib/hackathon-hub';
+import { cleanOrganiser } from '../../src/lib/hub/text';
 import { publishCandidate } from '../../src/lib/hub/pipeline';
 import {
   computeHubScore,
@@ -265,6 +266,37 @@ check('matcher: unstop accepts event pages only', () => {
  * rows discovery actually stored.
  */
 async function rankingChecks() {
+  // ── organiser hygiene: a mandatory field must not be a placeholder ──
+  await checkAsync('adapter: placeholder organisers are not organisers', async () => {
+    for (const junk of ['N/A', 'n/a', 'NA', 'nill', 'nil', 'none', 'unknown', 'the', 'an', '-', '...', 'TBD', 'test']) {
+      assert.strictEqual(cleanOrganiser(junk), null, `"${junk}" must not become an organiser`);
+    }
+    for (const real of ['Google', 'ISTE SC MANIT', 'International Institute of Information Technology']) {
+      assert.strictEqual(cleanOrganiser(real), real, `"${real}" must survive`);
+    }
+    // Scraped prose stops at the sentence.
+    assert.strictEqual(cleanOrganiser('ISTE SC MANIT! This is your chance to win'), null);
+    assert.strictEqual(cleanOrganiser(''), null);
+    assert.strictEqual(cleanOrganiser(null), null);
+  });
+
+  await checkAsync('adapter: live payloads carry no placeholder organisers', async () => {
+    let seen = 0;
+    const bad: string[] = [];
+    for (const key of ['unstop', 'devpost', 'devfolio']) {
+      const page = await fetchStructuredPage(key, 1);
+      for (const item of page.events) {
+        const o = item.event.organiser;
+        if (!o) continue;
+        seen += 1;
+        if (/^(n\/?a|nil+|na|the|none)$/i.test(o.trim())) bad.push(`${key}:"${o}"`);
+      }
+    }
+    assert.strictEqual(bad.length, 0, `placeholders survived: ${bad.slice(0, 5).join(', ')}`);
+    assert.ok(seen > 0, 'expected at least some organisers in live payloads');
+    console.log(`    ${seen} organisers seen across three live sources, 0 placeholders`);
+  });
+
   // ── percentile: comparable across sources, honest about missing counts ──
   await checkAsync('ranking: percentile is monotonic and keeps nulls null', async () => {
     const ranks = percentileRanks([10, null, 100, 0, 55]);

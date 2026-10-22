@@ -52,3 +52,21 @@ export function tidy(input: string | null | undefined, max = 400): string | null
   if (!/[\p{L}\p{N}]/u.test(value)) return null;
   return value.slice(0, max);
 }
+
+/**
+ * Organiser is a mandatory field, so a placeholder would let an event pass
+ * verification with nothing behind it. These arrive for real: Devpost publishes
+ * literal "n/a" / "nill" / "NA" values, and scraping "Organized by the …" out of
+ * a description yields a bare article.
+ */
+const PLACEHOLDER_ORGANISER =
+  /^(n\/?a|nil+|none|null|unknown|tba|tbd|test+|x{2,}|-+|\.+|\?+|the|an?|staff|admin|organi[sz]ers?|team|various)$/i;
+
+export function cleanOrganiser(input: string | null | undefined, max = 200): string | null {
+  const value = tidy(input, max);
+  if (!value) return null;
+  if (PLACEHOLDER_ORGANISER.test(value.trim())) return null;
+  // A scraped description leaks a sentence: "ISTE SC MANIT! This is your chance…"
+  if (/[.!?]\s/.test(value)) return null;
+  return value;
+}
