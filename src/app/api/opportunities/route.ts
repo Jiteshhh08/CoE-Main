@@ -57,19 +57,24 @@ export async function GET(req: NextRequest) {
       myInterest: user ? myInterestMap.get(opportunity.id) ?? null : null,
     }));
 
-    return successRes(payload, 'Opportunities retrieved successfully.');
+    const response = successRes(payload, 'Opportunities retrieved successfully.');
+    // Auth-dependent response: never let a proxy/browser reuse an admin view or
+    // a stale admin hint. Server-side authorization still gates writes.
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('X-Is-Admin', isAdmin ? '1' : '0');
+    return response;
   } catch (err) {
     console.error('Opportunities GET error:', err);
     return errorRes('Internal server error', [], 500);
   }
 }
 
-// POST /api/opportunities — admin/faculty create
+// POST /api/opportunities — admin create
 export async function POST(req: NextRequest) {
   try {
     const user = authenticate(req);
     if (!user) return errorRes('Unauthorized', [], 401);
-    if (!authorize(user, 'ADMIN', 'FACULTY')) return errorRes('Forbidden', [], 403);
+    if (!authorize(user, 'ADMIN')) return errorRes('Forbidden', [], 403);
 
     const body = await req.json();
     const parsed = opportunityCreateSchema.safeParse(body);
