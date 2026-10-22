@@ -19,7 +19,15 @@ import {
   HUB_VERIFY_THRESHOLD,
   type ExtractedEvent,
 } from '../../src/lib/hub/extract';
-import { isFirecrawlConfigured, searchWeb, fetchHtmlWithRender, renderHtml } from '../../src/lib/hub/firecrawl';
+import {
+  isFirecrawlConfigured,
+  searchWeb,
+  fetchHtmlWithRender,
+  renderHtml,
+  renderBudgetAvailable,
+  renderBudgetState,
+  resetRenderBudget,
+} from '../../src/lib/hub/firecrawl';
 import {
   discoverFromSearch,
   extractEventLinks,
@@ -196,6 +204,19 @@ check('registration: platforms that sign up on the event page are declared', () 
   assert.strictEqual(registersOnEventPage('government'), false);
 });
 
+check('render budget: a spent budget stops rendering instead of stalling the cron', () => {
+  const prev = process.env.HUB_RENDER_MAX_PAGES;
+  process.env.HUB_RENDER_MAX_PAGES = '0';
+  resetRenderBudget();
+  assert.strictEqual(renderBudgetAvailable(), false, 'zero-page budget must be exhausted immediately');
+  const st = renderBudgetState();
+  assert.strictEqual(st.maxPages, 0);
+  if (prev === undefined) delete process.env.HUB_RENDER_MAX_PAGES;
+  else process.env.HUB_RENDER_MAX_PAGES = prev;
+  resetRenderBudget();
+  assert.strictEqual(renderBudgetAvailable(), true, 'fresh window has budget again');
+});
+
 check('registration: event-page predicate rejects listing/dashboard URLs', () => {
   assert.strictEqual(isIndividualEventPage('https://unstop.com/hackathons/some-event-1', 'unstop'), true);
   assert.strictEqual(isIndividualEventPage('https://unstop.com/hackathons', 'unstop'), false);
@@ -325,6 +346,20 @@ async function liveChecks() {
     const renderedLen = vis(rendered.text);
     console.log(`    ${LISTING_URL}\n    plain ${plainLen}c -> rendered ${renderedLen}c`);
     assert.ok(renderedLen > plainLen * 2, `render should more than double text (${plainLen} -> ${renderedLen})`);
+  });
+
+  await checkAsync('render budget: exhausted budget makes renderHtml a no-op (no hang)', async () => {
+    const prev = process.env.HUB_RENDER_MAX_PAGES;
+    process.env.HUB_RENDER_MAX_PAGES = '0';
+    resetRenderBudget();
+    const started = Date.now();
+    const out = await renderHtml('https://unstop.com/hackathons');
+    const ms = Date.now() - started;
+    if (prev === undefined) delete process.env.HUB_RENDER_MAX_PAGES;
+    else process.env.HUB_RENDER_MAX_PAGES = prev;
+    resetRenderBudget();
+    assert.strictEqual(out, null, 'must refuse without spending a request');
+    assert.ok(ms < 3000, `must return immediately, took ${ms}ms`);
   });
 
   await checkAsync('render: a page that already renders is not re-rendered', async () => {

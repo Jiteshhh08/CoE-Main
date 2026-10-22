@@ -449,7 +449,13 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       );
       // Platforms that register on the event page: the page URL is the correct
       // registration link when the page itself carries no separate signup URL.
-      if (!extracted.registrationUrl && registersOnEventPage(candidate.source)) {
+      if (
+        !extracted.registrationUrl &&
+        registersOnEventPage(candidate.source) &&
+        // ...and ONLY on an individual event page. Without this the original
+        // fabrication bug returns for any listing URL that reaches this path.
+        isIndividualEventPage(candidate.url, candidate.source)
+      ) {
         extracted.registrationUrl = candidate.url;
       }
       const confidence = scoreConfidence(extracted, candidate.sourceType);

@@ -7,8 +7,54 @@ import { fetchPublicText } from './fetch-guard';
 // Security: the endpoint is operator config, never user input, but it is still
 // pinned to loopback/private hosts — this must not become a public egress proxy.
 
-const RENDER_TIMEOUT_MS = 45_000;
-const SEARCH_TIMEOUT_MS = 30_000;
+// Observed render latency is 3-7s; 20s is generous headroom. These are
+// CEILINGS, and ceilings are what blow a maxDuration=300 request.
+const RENDER_TIMEOUT_MS = 20_000;
+const SEARCH_TIMEOUT_MS = 12_000;
+
+// Rendering is the expensive, unbounded-feeling part of a cron request: six
+// crawl seeds plus extraction can each stall on a hung renderer. Budget it over
+// a rolling window (same shape as the 10-minute stage guards) so a bad renderer
+// degrades to plain fetches instead of turning the cron into a 504.
+const RENDER_WINDOW_MS = 10 * 60_000;
+const DEFAULT_RENDER_BUDGET_MS = 60_000;
+const DEFAULT_RENDER_MAX_PAGES = 10;
+
+let windowStart = 0;
+let windowSpentMs = 0;
+let windowPages = 0;
+
+function renderBudgetMs(): number {
+  const raw = Number(process.env.HUB_RENDER_BUDGET_MS);
+  return Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 180_000) : DEFAULT_RENDER_BUDGET_MS;
+}
+
+function renderMaxPages(): number {
+  const raw = Number(process.env.HUB_RENDER_MAX_PAGES);
+  return Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 50) : DEFAULT_RENDER_MAX_PAGES;
+}
+
+/** True while this 10-minute window still has render budget left. */
+export function renderBudgetAvailable(): boolean {
+  const now = Date.now();
+  if (now - windowStart > RENDER_WINDOW_MS) {
+    windowStart = now;
+    windowSpentMs = 0;
+    windowPages = 0;
+  }
+  return windowSpentMs < renderBudgetMs() && windowPages < renderMaxPages();
+}
+
+export function renderBudgetState(): { spentMs: number; pages: number; budgetMs: number; maxPages: number } {
+  return { spentMs: windowSpentMs, pages: windowPages, budgetMs: renderBudgetMs(), maxPages: renderMaxPages() };
+}
+
+/** Tests only — start a fresh budget window. */
+export function resetRenderBudget(): void {
+  windowStart = Date.now();
+  windowSpentMs = 0;
+  windowPages = 0;
+}
 // Below this many visible characters a page is treated as a JS shell or a
 // cookie wall, and worth a (much more expensive) render.
 const SHELL_TEXT_THRESHOLD = 900;
@@ -72,6 +118,9 @@ function visibleTextLength(html: string): number {
 export async function renderHtml(url: string): Promise<string | null> {
   const base = endpoint();
   if (!base) return null;
+  if (!renderBudgetAvailable()) return null;
+  const started = Date.now();
+  windowPages += 1;
   try {
     const res = await fetch(`${base}/v1/scrape`, {
       method: 'POST',
@@ -91,8 +140,10 @@ export async function renderHtml(url: string): Promise<string | null> {
       data?: { html?: string; rawHtml?: string };
     };
     const html = data?.data?.html || data?.data?.rawHtml || '';
+    windowSpentMs += Date.now() - started;
     return html.length > 0 ? html : null;
   } catch {
+    windowSpentMs += Date.now() - started;
     return null;
   }
 }
