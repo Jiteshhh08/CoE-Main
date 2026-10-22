@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
-import { clipDbString } from '@/lib/hackathon-hub';
+import { clipDbString, cleanEventTitle, normalizeName } from '@/lib/hackathon-hub';
 import { ensureHubSources } from './sources';
 import { fetchPublicText } from './fetch-guard';
+import { fetchHtmlWithRender, isFirecrawlConfigured, searchWeb } from './firecrawl';
 
 const FETCH_TIMEOUT_MS = 15000;
 const POLITENESS_DELAY_MS = 1500;
@@ -22,6 +23,30 @@ const LISTING_PATTERNS = [
 export const LISTING_TITLES = {
   test: (title: string): boolean => LISTING_PATTERNS.some((re) => re.test(title)),
 };
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+// Link text arrives HTML-escaped ("AI &amp; Prompt Engineering"), which makes
+// titles look broken in the Hub UI.
+export function decodeEntities(input: string): string {
+  return input.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, code: string) => {
+    const key = code.toLowerCase();
+    try {
+      if (key.startsWith('#x')) return String.fromCodePoint(parseInt(key.slice(2), 16));
+      if (key.startsWith('#')) return String.fromCodePoint(parseInt(key.slice(1), 10));
+    } catch {
+      return match;
+    }
+    return NAMED_ENTITIES[key] ?? match;
+  });
+}
 
 export function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
@@ -49,11 +74,11 @@ export function normalizeUrl(raw: string, base: string): string | null {
 }
 
 async function fetchHtml(url: string): Promise<string> {
-  // SSRF-guarded: host allowlisted via DNS before fetch, landing re-checked.
-  const { status, text } = await fetchPublicText(url, {
+  // Rendering fallback inside: JS-shell sources (Devfolio, Unstop, HackerEarth)
+  // return empty markup to a plain fetch, so those are rendered when configured.
+  const { status, text } = await fetchHtmlWithRender(url, {
     timeoutMs: FETCH_TIMEOUT_MS,
     maxChars: MAX_HTML_CHARS,
-    contentTypes: ['html', 'text'],
   });
   if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
   return text;
@@ -78,7 +103,7 @@ export function extractEventLinks(html: string, base: string): DiscoveredLink[] 
     } catch {
       continue;
     }
-    const title = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const title = decodeEntities(match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 200);
     if (title.length < 8 || !HACKATHON_KEYWORDS.test(title) || NOISE.test(title)) continue;
     if (LISTING_TITLES.test(title)) continue;
     const key = url.toLowerCase();
@@ -92,8 +117,18 @@ export function extractEventLinks(html: string, base: string): DiscoveredLink[] 
 export type DiscoveryResult = {
   pagesFetched: number;
   discovered: number;
+  /** Same event already known under a different URL/source — skipped, not duplicated. */
+  duplicatesSkipped: number;
   errors: string[];
 };
+
+// Titles already represented in the candidate queue, keyed by cleaned+normalized
+// name. Cross-source duplicates (the same hackathon listed on Unstop AND
+// IndiaHackathons) never share a URL, so URL dedupe alone cannot see them.
+async function knownTitleKeys(): Promise<Set<string>> {
+  const rows = await prisma.hubCandidate.findMany({ select: { title: true } });
+  return new Set(rows.map((r: { title: string | null }) => normalizeName(cleanEventTitle(r.title))));
+}
 
 // Sitemap discovery: a sitemap.xml is a machine-readable index of a site's
 // pages — one fetch yields every event URL, no HTML parsing. Preferred over
@@ -122,13 +157,14 @@ export async function discoverFromSitemap(
       const existing = await prisma.hubCandidate.findUnique({ where: { url } });
       if (existing) continue;
       const slug = url.split('/').filter(Boolean).pop() ?? url;
+      const title = cleanEventTitle(slug.replace(/[-_]+/g, ' ').replace(/\?.*$/, ''));
       await prisma.hubCandidate.create({
         data: {
           url,
           source: sourceKey,
           sourceType,
           status: 'DISCOVERED',
-          title: clipDbString(slug.replace(/[-_]+/g, ' ').replace(/\?.*$/, ''), 191) ?? url.slice(0, 191),
+          title: clipDbString(title, 191) ?? url.slice(0, 191),
         },
       });
       discovered++;
@@ -139,11 +175,96 @@ export async function discoverFromSitemap(
   }
 }
 
+// Search-driven discovery. Some platforms are unreachable by crawling: Unstop's
+// /hackathons listing answers with a cookie wall (416 chars of "Please Wait")
+// to both plain fetch AND a JS render. Their individual event pages render fine,
+// so the reliable route is: search -> keep only event URLs -> extract the page.
+export const SEARCH_SOURCES: Record<
+  string,
+  { sourceType: string; queries: string[]; isEventUrl: (u: URL) => boolean }
+> = {
+  unstop: {
+    sourceType: 'UNSTOP',
+    queries: ['unstop hackathon 2026 India register', 'unstop.com hackathon online students 2026'],
+    isEventUrl: (u) => u.hostname.endsWith('unstop.com') && /^\/hackathons\/[^/]+$/i.test(u.pathname),
+  },
+  devfolio: {
+    sourceType: 'DEVFOLIO',
+    queries: ['devfolio hackathon 2026 open register', 'devfolio.co hackathon India 2026'],
+    // Devfolio events live on subdomains (biosv2.devfolio.co), not /slug paths.
+    isEventUrl: (u) =>
+      (u.hostname.endsWith('.devfolio.co') && u.pathname === '/') ||
+      (u.hostname === 'devfolio.co' && /^\/hackathons\/[^/]+$/i.test(u.pathname)),
+  },
+  hack2skill: {
+    sourceType: 'HACK2SKILL',
+    queries: ['hack2skill hackathon 2026 register'],
+    isEventUrl: (u) =>
+      u.hostname.endsWith('hack2skill.com') && /^\/(hackathons|competitions)\/[^/]+$/i.test(u.pathname),
+  },
+};
+
+export async function discoverFromSearch(
+  sourceKey: string,
+  limitPerQuery = 10,
+  sharedSeen?: Set<string>,
+): Promise<{ discovered: number; duplicates: number; error: string | null }> {
+  const cfg = SEARCH_SOURCES[sourceKey];
+  // No config or no provider -> silently nothing. Discovery must not fail just
+  // because the optional renderer/search service is absent.
+  if (!cfg || !isFirecrawlConfigured()) return { discovered: 0, duplicates: 0, error: null };
+
+  const seenTitles = sharedSeen ?? (await knownTitleKeys());
+  let discovered = 0;
+  let duplicates = 0;
+  const errors: string[] = [];
+  for (const query of cfg.queries) {
+    const hits = await searchWeb(query, limitPerQuery);
+    if (hits.length === 0) {
+      errors.push(`${sourceKey}: search returned nothing for "${query}"`);
+      continue;
+    }
+    for (const hit of hits) {
+      let parsed: URL;
+      try {
+        parsed = new URL(hit.url);
+      } catch {
+        continue;
+      }
+      if (!cfg.isEventUrl(parsed)) continue;
+      if (NOISE.test(hit.title) || LISTING_TITLES.test(hit.title)) continue;
+      const url = hit.url.slice(0, 512);
+      const existing = await prisma.hubCandidate.findUnique({ where: { url } });
+      if (existing) continue;
+      const title = cleanEventTitle(hit.title);
+      const key = normalizeName(title);
+      if (key && seenTitles.has(key)) {
+        duplicates += 1;
+        continue;
+      }
+      seenTitles.add(key);
+      await prisma.hubCandidate.create({
+        data: {
+          url,
+          source: sourceKey,
+          sourceType: cfg.sourceType,
+          status: 'DISCOVERED',
+          title: clipDbString(title, 191) ?? url.slice(0, 191),
+        },
+      });
+      discovered++;
+    }
+  }
+  return { discovered, duplicates, error: errors.length > 0 ? errors.join('; ').slice(0, 1900) : null };
+}
+
 export async function runDiscovery(): Promise<DiscoveryResult> {
   await ensureHubSources();
   const errors: string[] = [];
   let pagesFetched = 0;
   let discovered = 0;
+  let duplicatesSkipped = 0;
+  const seenTitles = await knownTitleKeys();
 
   const sources = await prisma.hubSource.findMany({
     where: { enabled: true, method: { in: ['PAGE', 'RSS', 'API'] } },
@@ -163,6 +284,27 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
     if (sitemap.error) errors.push(sitemap.error);
   }
 
+  // Search-first stage for platforms whose listing pages are JS shells or
+  // cookie-walled (they sit at method=MANUAL, so they are not in `sources`).
+  // Runs only when a self-hosted search provider is configured.
+  if (isFirecrawlConfigured()) {
+    const enabledKeys = new Set(
+      (
+        await prisma.hubSource.findMany({
+          where: { enabled: true },
+          select: { key: true },
+        })
+      ).map((s: { key: string }) => s.key),
+    );
+    for (const key of Object.keys(SEARCH_SOURCES)) {
+      if (!enabledKeys.has(key)) continue;
+      const found = await discoverFromSearch(key, 10, seenTitles);
+      discovered += found.discovered;
+      duplicatesSkipped += found.duplicates;
+      if (found.error) errors.push(found.error);
+    }
+  }
+
   for (const source of sources) {
     const seedUrl = (source as { key: string }).key
       ? seedUrlFor(source.key as string)
@@ -173,16 +315,33 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
       pagesFetched++;
       await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
       const hash = sha256(normalizeContent(html));
+      // Apply the source's event-URL matcher to crawled links too. Without it
+      // the rendered listings leak index pages ("Competitions", "/hackathons/applied").
+      const matcher = SEARCH_SOURCES[source.key as string]?.isEventUrl;
       for (const link of extractEventLinks(html, seedUrl)) {
+        if (matcher) {
+          try {
+            if (!matcher(new URL(link.url))) continue;
+          } catch {
+            continue;
+          }
+        }
         const existing = await prisma.hubCandidate.findUnique({ where: { url: link.url } });
         if (existing) continue;
+        const title = cleanEventTitle(link.title);
+        const key = normalizeName(title);
+        if (key && seenTitles.has(key)) {
+          duplicatesSkipped += 1;
+          continue;
+        }
+        seenTitles.add(key);
         await prisma.hubCandidate.create({
           data: {
             url: link.url,
             source: source.key,
             sourceType: sourceTypeFor(source.key),
             status: 'DISCOVERED',
-            title: clipDbString(link.title, 191) ?? link.url.slice(0, 191),
+            title: clipDbString(title, 191) ?? link.url.slice(0, 191),
             pageHash: hash,
           },
         });
@@ -206,7 +365,7 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
     data: { source: 'DISCOVERY', discovered, inserted: discovered, errors: errors.length > 0 ? errors : undefined },
   });
 
-  return { pagesFetched, discovered, errors };
+  return { pagesFetched, discovered, duplicatesSkipped, errors };
 }
 
 function seedUrlFor(key: string): string | null {

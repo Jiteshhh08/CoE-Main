@@ -148,11 +148,14 @@ All in `src/lib/hub/`, triggered by `/api/cron/hub?job=` (see §9).
 2. **Page crawl** for enabled `PAGE` sources: polite fetch (15s timeout, 1.5s gap, `TCET-CoE-HubBot/1.0` user-agent), extract links whose titles match hackathon keywords, skip nav noise, listing-page titles ("Explore hackathons", count-style and platform-index titles), self-links, and form paths (`/submit`, `/login`…).
 3. **Dedupe** by exact URL; each new candidate stores the source page's SHA-256 as its baseline `pageHash`; per-source errors recorded on the source row, never aborting other sources.
 
-Deliberately not wired: a search-API discovery leg (evaluated and removed pre-merge — launch doesn't need the breadth, and review bandwidth is the real constraint; revisit if aggregator coverage proves thin).
+4. **Render fallback** (`firecrawl.ts` -> `fetchHtmlWithRender`): when a plain fetch returns a JS shell (under 900 visible chars), the page is re-fetched through the self-hosted renderer and the post-JS HTML is used. Both discovery and extraction route through this one helper, so JS-heavy sources are fixed in one place. Measured: Unstop's listing 442 -> 5,906 visible chars; HackerEarth 496 -> 7,314.
+5. **Search stage** (`discoverFromSearch`): for platforms whose listings stay unusable, open-internet search supplies event URLs, filtered by the source's own `isEventUrl` matcher so index pages ("Competitions", `/hackathons/applied`) never become candidates. The same matcher is applied to crawled links, so both paths reject the same junk.
+
+Both stages are **optional and self-healing**: with no renderer configured the pipeline behaves exactly as before (`unstop`/`hackerearth`/`devfolio` stay `MANUAL`), and re-enabling it flips them to `PAGE` on the next `ensureHubSources()` run.
 
 ### 4.1a Search query strategy (§10) and geo tiers (§11)
 
-Kept here as the living spec; they become code only if a search-provider key is configured.
+Implemented as `SEARCH_SOURCES` in `discovery.ts`; runs only when a self-hosted search provider is configured (`FIRECRAWL_URL`). Listed here as the strategy each entry encodes.
 
 - **Location:** hackathon Mumbai / Navi Mumbai / Thane / Pune / Maharashtra / India 2026, online hackathon 2026
 - **Institution:** college / engineering-college-Maharashtra / university hackathon Mumbai 2026
@@ -170,12 +173,25 @@ Three layers, in order — missing stays `NULL`, never invented:
 
 **Never invented** (regression-tested in `hub-checks.ts`):
 - `registrationUrl` is either a genuine link (relative links resolved against the page) or `null`. The listing page is never substituted; the candidate keeps `url` as the source. Malformed/`javascript:` links are dropped, not repaired. AI echoes of the page URL are rejected.
-- `organiser` comes from JSON-LD or "hosted/presented by …" text only. A crawled hostname (`devfolio.co`) is never treated as the organiser.
+- `organiser` comes from JSON-LD or "hosted/presented by …" text only. A crawled hostname (`devfolio.co`) is never treated as the organiser. Matches that run into page chrome ("best viewed in chrome, opera…") are rejected outright — a missing organiser is recoverable, a wrong one is not.
 - `endDate` is only set from an explicit value or a genuinely later date found on the page. One date does not imply a one-day event.
 - Numeric dates: `13/04/2027` → 13 Apr, `04/13/2027` → 13 Apr, but `03/04/2027` is ambiguous and rejected. Written-month and ISO dates are validated against a real calendar (no `31 February`, leap-aware).
 - AI output: JSON `null`/`"null"`/`"undefined"`/`"N/A"`/`"none"`/`"-"`/blank are missing, dates must be valid ISO, and invalid values never overwrite rule/JSON-LD evidence.
 
-**Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field + source bonus (official/admin +0.2, platforms +0.1) + small extras, capped 0.95. ≥0.90 with all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing. A missing registration URL or organiser lowers the score and cannot reach auto-verify.
+**Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field (six -> 0.70) + source bonus (official/government/admin +0.2, aggregators +0.15) + city 0.03 + prize 0.02, capped 0.95. `HUB_VERIFY_THRESHOLD` (0.9) **and** all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing.
+
+Both conditions are required: `mandatoryMissing().length === 0 && confidence >= HUB_VERIFY_THRESHOLD`. The score alone reaching 0.9 does not pass — a complete government event still needs every mandatory field.
+
+Ceilings that ACTUALLY reach the threshold (this is the trap — verify it whenever the formula changes):
+
+| source tier | complete extraction + city + prize | can auto-verify |
+|---|---|---|
+| official / government / admin | 0.95 | yes |
+| aggregator (`UNSTOP`, `DEVFOLIO`, `HACKEREARTH`, `HACK2SKILL`, `MLH`, `COLLEGE_WEBSITE`, `INDIAHACKATHONS`) | 0.90 | yes, but only when complete |
+| aggregator without city or prize | 0.85 | no |
+| unlisted source | 0.75 | no |
+
+`INDIAHACKATHONS` previously appeared in **no** tier, capping it at 0.75 — below the threshold, so its candidates (96 of 111 in a live run) could never verify regardless of extraction quality. Regression-tested in `hub-search-checks.ts`.
 
 **Cities** (`src/lib/hub/cities.ts`) are one registry used by both extraction and distance: name + aliases + coordinates. Adding a city in one place makes it recognisable *and* distance-capable; unknown cities stay `null` (no fabricated "N km").
 
@@ -301,6 +317,15 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 **Known limits (by design, §42):** JS-rendered platform crawlers are parked at `MANUAL` (page fetches return app shells); auto-discovery's reliable legs are the indiahackathons sitemap + pasted URLs + CSV. Prize pools and registration deadlines are rarely published anywhere — rows surface in `NEEDS_REVIEW` missing only the deadline. No search-API provider, personalization, maps, or chatbot.
 
 ---
+
+### Optional: self-hosted renderer and search
+
+| Var | Default | Meaning |
+|---|---|---|
+| `FIRECRAWL_URL` | unset (disabled) | Self-hosted Firecrawl endpoint. **Loopback or RFC1918 only** — a public host is refused at startup so the app can never become an open egress proxy. |
+| `FIRECRAWL_API_KEY` | unset | Sent as a bearer token if the local service requires one. |
+
+With it set: JS-shell pages are rendered automatically, and `unstop` / `hackerearth` / `devfolio` flip from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party search account or per-query credits are involved either way.
 
 ## 12. Troubleshooting
 

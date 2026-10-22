@@ -1,4 +1,5 @@
 import prisma from '@/lib/prisma';
+import { isFirecrawlConfigured } from './firecrawl';
 
 // Source registry (§8). One row per discovery source — never hard-code
 // sources in jobs. Priority doubles as conflict weight (§20: higher wins).
@@ -31,12 +32,21 @@ export const HUB_SOURCE_SEEDS: HubSourceSeed[] = [
 
 // Search query strategy (§10) and geo tiers (§11) live in docs/handoff/HACKATHON_HUB.md.
 // They become code again only when a search-provider key is configured.
+// These platforms render their listings client-side: a plain fetch sees an
+// empty shell, but a JS render yields real event links (verified: Unstop listing
+// 442 -> 5,906 visible chars, 15 event links). They become crawlable the moment
+// a renderer is configured, and fall back to MANUAL (paste/CSV only) without one.
+const RENDERABLE_SOURCES = new Set(['unstop', 'hackerearth', 'devfolio']);
+
 export async function ensureHubSources() {
+  const canRender = isFirecrawlConfigured();
   for (const seed of HUB_SOURCE_SEEDS) {
+    const method =
+      seed.method === 'MANUAL' && canRender && RENDERABLE_SOURCES.has(seed.key) ? 'PAGE' : seed.method;
     await prisma.hubSource.upsert({
       where: { key: seed.key },
-      update: { label: seed.label, method: seed.method, frequency: seed.frequency, priority: seed.priority },
-      create: { key: seed.key, label: seed.label, method: seed.method, frequency: seed.frequency, priority: seed.priority, enabled: true },
+      update: { label: seed.label, method, frequency: seed.frequency, priority: seed.priority },
+      create: { key: seed.key, label: seed.label, method, frequency: seed.frequency, priority: seed.priority, enabled: true },
     });
   }
 }

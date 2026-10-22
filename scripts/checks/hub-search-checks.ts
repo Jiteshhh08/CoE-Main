@@ -1,0 +1,390 @@
+/**
+ * Checks for the self-hosted search + render layer (Firecrawl) and the
+ * confidence-ceiling fix.
+ *
+ * Sections A–B are pure-function regressions (no network, no DB).
+ * Sections C–E are integration checks: they hit the self-hosted Firecrawl
+ * service and the development database that DATABASE_URL points at. DB rows
+ * created here are removed in the finally block.
+ *
+ * Run: FIRECRAWL_URL=http://127.0.0.1:3002 \
+ *      DATABASE_URL=... npx --yes tsx scripts/checks/hub-search-checks.ts
+ */
+import assert from 'node:assert';
+import prisma from '../../src/lib/prisma';
+import {
+  extractFromHtml,
+  scoreConfidence,
+  mandatoryMissing,
+  HUB_VERIFY_THRESHOLD,
+  type ExtractedEvent,
+} from '../../src/lib/hub/extract';
+import { isFirecrawlConfigured, searchWeb, fetchHtmlWithRender, renderHtml } from '../../src/lib/hub/firecrawl';
+import { discoverFromSearch, extractEventLinks, decodeEntities, SEARCH_SOURCES } from '../../src/lib/hub/discovery';
+import { ensureHubSources } from '../../src/lib/hub/sources';
+import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
+import { cleanEventTitle } from '../../src/lib/hackathon-hub';
+import { publishCandidate } from '../../src/lib/hub/pipeline';
+
+let passed = 0;
+const check = (name: string, fn: () => void) => {
+  fn();
+  passed += 1;
+  console.log(`✓ ${name}`);
+};
+const checkAsync = async (name: string, fn: () => Promise<void>) => {
+  await fn();
+  passed += 1;
+  console.log(`✓ ${name}`);
+};
+
+const fullEvent = (over: Partial<ExtractedEvent> = {}): ExtractedEvent => ({
+  eventName: 'HackMatrix 5.0',
+  organiser: "PCCOE'S GFG Student Chapter",
+  startDate: '2026-11-15',
+  registrationDeadline: '2026-11-01',
+  registrationUrl: 'https://unstop.com/hackathons/hackmatrix-5',
+  mode: 'OFFLINE',
+  state: 'Maharashtra',
+  city: 'Pune',
+  venue: 'PCCOE',
+  prizePool: '₹70,000',
+  teamMin: 3,
+  teamMax: 4,
+  eligibility: null,
+  endDate: null,
+  domains: ['AI'],
+  ...over,
+});
+
+// The real gate from runExtraction: BOTH conditions must hold.
+const wouldVerify = (e: ExtractedEvent, src: string) =>
+  mandatoryMissing(e).length === 0 && scoreConfidence(e, src) >= HUB_VERIFY_THRESHOLD;
+
+const filled = (e: ExtractedEvent) =>
+  Object.values(e).filter((v) => v !== null && v !== undefined && v !== '').length;
+
+// ─── A. Confidence ceiling ───
+// Regression: INDIAHACKATHONS had no source tier at all, capping a PERFECT
+// extraction at 0.75 -> 92 of 111 live candidates were stuck in review forever.
+check('confidence: fully-specified INDIAHACKATHONS event now clears the threshold', () => {
+  const c = scoreConfidence(fullEvent(), 'INDIAHACKATHONS');
+  assert.strictEqual(c, 0.9, `expected 0.9, got ${c}`);
+  assert.ok(c >= HUB_VERIFY_THRESHOLD, 'must reach auto-verify threshold');
+});
+
+check('confidence: INDIAHACKATHONS was previously capped below threshold', () => {
+  // Old formula: 0.4 + 0.30 fields + 0 (no tier) + 0.03 city + 0.02 prize = 0.75
+  const oldValue = 0.4 + 0.3 + 0 + 0.03 + 0.02;
+  assert.strictEqual(Math.round(oldValue * 100) / 100, 0.75);
+  assert.ok(oldValue < HUB_VERIFY_THRESHOLD, 'old ceiling must be unreachable');
+});
+
+check('confidence: named aggregators clear the threshold when complete', () => {
+  for (const src of ['UNSTOP', 'DEVFOLIO', 'MLH', 'HACKEREARTH', 'HACK2SKILL', 'INDIAHACKATHONS']) {
+    const c = scoreConfidence(fullEvent(), src);
+    assert.ok(c >= HUB_VERIFY_THRESHOLD, `${src} got ${c}`);
+  }
+});
+
+check('confidence: trusted sources remain highest', () => {
+  assert.strictEqual(scoreConfidence(fullEvent(), 'GOVERNMENT'), 0.95);
+  assert.strictEqual(scoreConfidence(fullEvent(), 'OFFICIAL_WEBSITE'), 0.95);
+});
+
+check('confidence: missing fields still block auto-verify (no loosening)', () => {
+  const partial = fullEvent({ registrationDeadline: null, mode: null, city: null });
+  assert.strictEqual(wouldVerify(partial, 'UNSTOP'), false);
+  assert.strictEqual(mandatoryMissing(partial).length, 2);
+  // A missing mandatory field blocks even the highest-trust source, even where
+  // the raw score alone would still reach the threshold.
+  assert.strictEqual(wouldVerify(fullEvent({ startDate: null }), 'GOVERNMENT'), false);
+  assert.strictEqual(wouldVerify(fullEvent(), 'GOVERNMENT'), true);
+});
+
+check('confidence: aggregators with all six fields + city + prize do verify', () => {
+  for (const src of ['UNSTOP', 'DEVFOLIO', 'INDIAHACKATHONS', 'MLH']) {
+    assert.strictEqual(wouldVerify(fullEvent(), src), true, `${src} should verify`);
+  }
+});
+
+check('confidence: complete but no city/prize stays in review for aggregators', () => {
+  const c = scoreConfidence(fullEvent({ city: null, prizePool: null }), 'UNSTOP');
+  assert.strictEqual(c, 0.85);
+  assert.ok(c < HUB_VERIFY_THRESHOLD);
+});
+
+check('confidence: unknown source gets no tier bonus', () => {
+  assert.strictEqual(scoreConfidence(fullEvent(), 'SOMETHING_ELSE'), 0.75);
+});
+
+// ─── B. Renderer config guard ───
+check('renderer: disabled when FIRECRAWL_URL is unset', () => {
+  const prev = process.env.FIRECRAWL_URL;
+  delete process.env.FIRECRAWL_URL;
+  assert.strictEqual(isFirecrawlConfigured(), false);
+  if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
+});
+
+check('renderer: refuses a public host (must not become an egress proxy)', () => {
+  const prev = process.env.FIRECRAWL_URL;
+  for (const bad of ['http://evil.example.com:3002', 'https://api.openai.com', 'ftp://127.0.0.1:3002']) {
+    process.env.FIRECRAWL_URL = bad;
+    assert.strictEqual(isFirecrawlConfigured(), false, `should refuse ${bad}`);
+  }
+  if (prev === undefined) delete process.env.FIRECRAWL_URL;
+  else process.env.FIRECRAWL_URL = prev;
+});
+
+check('renderer: accepts loopback and private hosts', () => {
+  const prev = process.env.FIRECRAWL_URL;
+  for (const good of ['http://127.0.0.1:3002', 'http://localhost:3002', 'http://192.168.1.20:3002']) {
+    process.env.FIRECRAWL_URL = good;
+    assert.strictEqual(isFirecrawlConfigured(), true, `should accept ${good}`);
+  }
+  if (prev === undefined) delete process.env.FIRECRAWL_URL;
+  else process.env.FIRECRAWL_URL = prev;
+});
+
+check('extraction: footer chrome never becomes an organiser', () => {
+  const junk = '<html><body><p>This event is powered by best viewed in chrome, opera, mozilla</p></body></html>';
+  assert.strictEqual(extractFromHtml(junk, 'https://example.com/ev').organiser, null);
+  const real = '<html><body><p>This hackathon is organised by Acme Robotics Club Pune</p></body></html>';
+  const org = extractFromHtml(real, 'https://example.com/ev').organiser;
+  assert.ok(org && /acme/i.test(org), `expected a real organiser, got ${JSON.stringify(org)}`);
+});
+
+check('titles: platform chrome is stripped before storage', () => {
+  assert.strictEqual(cleanEventTitle('Web Hackathon - 2026 - Unstop'), 'Web Hackathon - 2026');
+  assert.strictEqual(cleanEventTitle('SU HACKS 2026 - Unstop'), 'SU HACKS 2026');
+  assert.strictEqual(cleanEventTitle('Ignition Hackathon Series 2026 - Unstop'), 'Ignition Hackathon Series 2026');
+  assert.strictEqual(cleanEventTitle('AI Hackathon | Devfolio'), 'AI Hackathon');
+  assert.strictEqual(cleanEventTitle('HackMatrix 5.0'), 'HackMatrix 5.0');
+  assert.strictEqual(cleanEventTitle('  spaced   out  '), 'spaced out');
+});
+
+check('entities: link titles are decoded', () => {
+  assert.strictEqual(decodeEntities('AI &amp; Prompt Engineering'), 'AI & Prompt Engineering');
+  assert.strictEqual(decodeEntities('It&#39;s here'), "It's here");
+  assert.strictEqual(decodeEntities('plain text'), 'plain text');
+});
+
+check('matcher: unstop accepts event pages only', () => {
+  const m = SEARCH_SOURCES.unstop.isEventUrl;
+  assert.strictEqual(m(new URL('https://unstop.com/hackathons/some-event-123')), true);
+  assert.strictEqual(m(new URL('https://unstop.com/hackathons')), false);
+  assert.strictEqual(m(new URL('https://unstop.com/competitions')), false);
+  assert.strictEqual(m(new URL('https://unstop.com/hackathons/a/b')), false);
+});
+
+async function dedupeChecks() {
+  const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
+  if (!admin) throw new Error('dedupe checks need an ADMIN user');
+
+  const mk = (url: string, source: string, organiser: string, title: string) =>
+    prisma.hubCandidate.create({
+      data: {
+        url,
+        source,
+        sourceType: source.toUpperCase(),
+        status: 'VERIFIED',
+        title,
+        extracted: {
+          eventName: title,
+          organiser,
+          mode: 'ONLINE',
+          city: 'Mumbai',
+          startDate: '2026-12-01',
+          registrationDeadline: '2026-11-20',
+          registrationUrl: null,
+          domains: [],
+        },
+      },
+    });
+
+  await checkAsync('dedupe: same event from two sources publishes ONE opportunity', async () => {
+    await prisma.opportunity.deleteMany({ where: { title: { contains: 'Dedupe Probe' } } });
+    await prisma.hubCandidate.deleteMany({ where: { url: { contains: 'dedupe-probe' } } });
+
+    // Different URLs, different organiser strings, platform chrome on one title:
+    // exactly the shape that used to become two entries on the public Hub.
+    const a = await mk(
+      'https://unstop.com/hackathons/dedupe-probe-1',
+      'unstop',
+      'Alpha Robotics Club',
+      'Dedupe Probe Hackathon 2026 - Unstop',
+    );
+    const b = await mk(
+      'https://devfolio.co/hackathons/dedupe-probe-2',
+      'devfolio',
+      'Beta Foundation Trust',
+      'Dedupe Probe Hackathon 2026',
+    );
+
+    const r1 = await publishCandidate(Number(a.id), admin.id);
+    const r2 = await publishCandidate(Number(b.id), admin.id);
+    const count = await prisma.opportunity.count({ where: { title: { contains: 'Dedupe Probe' } } });
+
+    console.log(`    candidate A -> opportunity ${r1.opportunityId}`);
+    console.log(`    candidate B -> opportunity ${r2.opportunityId}`);
+    assert.strictEqual(r1.opportunityId, r2.opportunityId, 'both candidates must resolve to one opportunity');
+    assert.strictEqual(count, 1, `expected exactly 1 opportunity, found ${count}`);
+  });
+
+  await checkAsync('dedupe: a short generic title does NOT merge (no false fusion)', async () => {
+    await prisma.opportunity.deleteMany({ where: { title: { contains: 'Codefest' } } });
+    await prisma.hubCandidate.deleteMany({ where: { url: { contains: 'dedupe-generic' } } });
+    const a = await mk('https://unstop.com/hackathons/dedupe-generic-1', 'unstop', 'Org One', 'Codefest 2026');
+    const b = await mk('https://devfolio.co/hackathons/dedupe-generic-2', 'devfolio', 'Org Two', 'Codefest 2027');
+    const r1 = await publishCandidate(Number(a.id), admin.id);
+    const r2 = await publishCandidate(Number(b.id), admin.id);
+    assert.notStrictEqual(r1.opportunityId, r2.opportunityId, 'different editions must stay separate');
+    await prisma.opportunity.deleteMany({ where: { title: { contains: 'Codefest' } } });
+  });
+
+  await prisma.hubCandidate.deleteMany({ where: { url: { contains: 'dedupe-probe' } } });
+  await prisma.hubCandidate.deleteMany({ where: { url: { contains: 'dedupe-generic' } } });
+}
+
+// ─── C. Live search ───
+const LISTING_URL = 'https://unstop.com/hackathons';
+const EVENT_URL = 'https://unstop.com/hackathons/hackmatrix-50-pccoes-gfg-student-chapter-1750988';
+const vis = (h: string) =>
+  h.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+   .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+
+async function liveChecks() {
+  if (!isFirecrawlConfigured()) {
+    console.log('\n(skipping live checks: FIRECRAWL_URL not set)');
+    return;
+  }
+
+  await checkAsync('search: self-hosted provider returns https hits', async () => {
+    const hits = await searchWeb('unstop hackathon 2026 India register', 5);
+    assert.ok(hits.length > 0, 'expected at least one hit');
+    assert.ok(hits.every((h) => h.url.startsWith('https://')), 'all urls must be https');
+    assert.ok(hits.every((h) => h.title.length > 0), 'all hits need a title');
+    console.log(`    ${hits.length} hits, first: ${hits[0].url.slice(0, 72)}`);
+  });
+
+  await checkAsync('render: JS-shell listing becomes readable', async () => {
+    const plain = await fetchPublicText(LISTING_URL, { timeoutMs: 20000, contentTypes: ['html', 'text'] });
+    const plainLen = vis(plain.text);
+    const rendered = await fetchHtmlWithRender(LISTING_URL, { timeoutMs: 30000 });
+    assert.strictEqual(rendered.rendered, true, 'shell listing should trigger a render');
+    const renderedLen = vis(rendered.text);
+    console.log(`    ${LISTING_URL}\n    plain ${plainLen}c -> rendered ${renderedLen}c`);
+    assert.ok(renderedLen > plainLen * 2, `render should more than double text (${plainLen} -> ${renderedLen})`);
+  });
+
+  await checkAsync('render: a page that already renders is not re-rendered', async () => {
+    const r = await fetchHtmlWithRender('https://mlh.io/events', { timeoutMs: 25000 });
+    assert.strictEqual(r.rendered, false, 'already-readable page must not pay for a render');
+  });
+
+  await checkAsync('discovery: rendered listing yields real event links, junk rejected', async () => {
+    const html = await renderHtml(LISTING_URL);
+    assert.ok(html, 'render returned html');
+    const links = extractEventLinks(html as string, LISTING_URL);
+    const matcher = SEARCH_SOURCES.unstop.isEventUrl;
+    const kept = links.filter((l) => {
+      try {
+        return matcher(new URL(l.url));
+      } catch {
+        return false;
+      }
+    });
+    console.log(`    extracted ${links.length} links -> ${kept.length} real event pages`);
+    for (const l of kept.slice(0, 4)) console.log(`      - ${l.title.slice(0, 56)}`);
+    assert.ok(kept.length >= 5, `expected >=5 event pages, got ${kept.length}`);
+    assert.ok(
+      kept.every((l) => /\/hackathons\/[^/]+$/.test(new URL(l.url).pathname)),
+      'every kept link must be an individual event page',
+    );
+    assert.ok(
+      !kept.some((l) => /\/(competitions|hackathons)$/.test(new URL(l.url).pathname)),
+      'index pages must be filtered out',
+    );
+  });
+
+  await checkAsync('sources: renderable platforms become crawlable with a renderer', async () => {
+    await ensureHubSources();
+    const rows = await prisma.hubSource.findMany({
+      where: { key: { in: ['unstop', 'hackerearth', 'devfolio'] } },
+      select: { key: true, method: true },
+    });
+    assert.strictEqual(rows.length, 3);
+    for (const r of rows) assert.strictEqual(r.method, 'PAGE', `${r.key} should be PAGE`);
+    // and revert to MANUAL without a renderer
+    const prev = process.env.FIRECRAWL_URL;
+    delete process.env.FIRECRAWL_URL;
+    await ensureHubSources();
+    const off = await prisma.hubSource.findMany({
+      where: { key: { in: ['unstop', 'hackerearth', 'devfolio'] } },
+      select: { key: true, method: true },
+    });
+    if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
+    await ensureHubSources();
+    for (const r of off) assert.strictEqual(r.method, 'MANUAL', `${r.key} should stay MANUAL without a renderer`);
+  });
+
+  // ─── E. Search -> candidate insertion ───
+  await checkAsync('discovery: search stage inserts real aggregator candidates', async () => {
+    // Start from a clean slate so the check does not depend on prior runs.
+    await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+    const res = await discoverFromSearch('unstop');
+    const rows = await prisma.hubCandidate.findMany({
+      where: { source: 'unstop' },
+      select: { url: true, sourceType: true, status: true },
+    });
+    console.log(`    discoverFromSearch(unstop) -> discovered=${res.discovered}, rows=${rows.length}`);
+    assert.ok(rows.length > 0, 'expected at least one unstop candidate');
+    assert.ok(rows.every((r: { sourceType: string }) => r.sourceType === 'UNSTOP'));
+    assert.ok(rows.every((r: { status: string }) => r.status === 'DISCOVERED'));
+    assert.ok(
+      rows.every((r: { url: string }) => /unstop\.com\/hackathons\/[^/]+$/.test(r.url)),
+      'all candidates must be individual event pages, not the listing',
+    );
+    assert.ok(
+      rows.every((r: { url: string }) => !/unstop\.com\/hackathons$/.test(r.url)),
+      'listing page must never be ingested',
+    );
+  });
+
+  await checkAsync('discovery: re-running never duplicates a URL', async () => {
+    // Search results legitimately vary between calls, so the invariant is not a
+    // fixed row count — it is that no event URL is ever ingested twice.
+    const before = await prisma.hubCandidate.findMany({
+      where: { source: 'unstop' },
+      select: { url: true },
+    });
+    await discoverFromSearch('unstop');
+    const after = await prisma.hubCandidate.findMany({
+      where: { source: 'unstop' },
+      select: { url: true },
+    });
+    const urls = after.map((r: { url: string }) => r.url);
+    assert.strictEqual(new Set(urls).size, urls.length, 'duplicate urls found');
+    for (const r of before) {
+      assert.ok(urls.includes(r.url), `previously discovered url disappeared: ${r.url}`);
+    }
+    console.log(`    ${before.length} -> ${after.length} rows, no duplicates`);
+  });
+
+  // cleanup
+  await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
+}
+
+dedupeChecks()
+  .then(() => liveChecks())
+  .then(() => {
+    console.log(`\nALL CHECKS PASSED (${passed})`);
+    console.log(`HUB_VERIFY_THRESHOLD = ${HUB_VERIFY_THRESHOLD}`);
+  })
+  .catch((err) => {
+    console.error('\nCHECK FAILED:', err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

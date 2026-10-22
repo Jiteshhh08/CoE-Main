@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { normalizeName, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { normalizeName, cleanEventTitle, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
 import { cityCoords } from './cities';
 import { coerceDateRange, toDbDate } from './dates';
 import type { ExtractedEvent } from './extract';
@@ -59,7 +59,7 @@ export async function publishCandidate(candidateId: number, actorId: number): Pr
     throw new Error(`Nothing to publish — missing: ${missing.join(', ')}`);
   }
 
-  const title = e.eventName ?? candidate.title ?? 'Untitled hackathon';
+  const title = cleanEventTitle(e.eventName ?? candidate.title) || 'Untitled hackathon';
   const organizer = e.organiser ?? 'Unknown organizer';
 
   // Dedupe (§16): URL first, then normalized name+organizer (skipped when unknown).
@@ -73,13 +73,29 @@ export async function publishCandidate(candidateId: number, actorId: number): Pr
       (await prisma.opportunity.findFirst({ where: { sourceUrl: e.registrationUrl } })) ??
       (await prisma.opportunity.findFirst({ where: { applicationUrl: e.registrationUrl } }));
   }
-  if (!existing && e.organiser && e.eventName) {
-    const rivals = await prisma.opportunity.findMany({
-      where: { organizer: e.organiser },
-      select: { id: true, title: true, description: true, verificationStatus: true },
-      take: 50,
-    });
-    existing = rivals.find((r) => normalizeName(r.title) === normalizeName(e.eventName as string)) ?? null;
+  if (!existing && e.eventName) {
+    const needle = normalizeName(cleanEventTitle(e.eventName));
+    if (e.organiser) {
+      const rivals = await prisma.opportunity.findMany({
+        where: { organizer: e.organiser },
+        select: { id: true, title: true, description: true, verificationStatus: true },
+        take: 50,
+      });
+      existing = rivals.find((r) => normalizeName(cleanEventTitle(r.title)) === needle) ?? null;
+    }
+    // Cross-source listings almost never agree on the organiser string ("Unstop"
+    // vs "PCCOE GFG Student Chapter"), so a distinctive title is the only shared
+    // signal. Short/generic titles stay unmatched on purpose: fusing
+    // "Hackathon 2026" would hide genuinely different events.
+    // ponytail: in-memory scan capped at 500 rows; move to a normalized-title
+    // column with an index if the opportunity table outgrows that.
+    if (!existing && needle.length >= 12) {
+      const rivals = await prisma.opportunity.findMany({
+        select: { id: true, title: true, description: true, verificationStatus: true },
+        take: 500,
+      });
+      existing = rivals.find((r) => normalizeName(cleanEventTitle(r.title)) === needle) ?? null;
+    }
   }
 
   // Conflict policy (shared with CSV import): curated rows are review-only.

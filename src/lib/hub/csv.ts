@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { opportunityCreateSchema } from '@/lib/validators';
-import { normalizeName, clipDbString, fitUrl } from '@/lib/hackathon-hub';
+import { normalizeName, cleanEventTitle, clipDbString, fitUrl } from '@/lib/hackathon-hub';
 import { toDbDate } from './dates';
 import { isCuratedVerification, isPlaceholderDescription } from './pipeline';
 import { fetchPublicText } from './fetch-guard';
@@ -117,8 +117,8 @@ export async function runCsvImport(
           select: { id: true, title: true, verificationStatus: true, sourceType: true, description: true, startDate: true },
           take: 50,
         });
-        const needle = normalizeName(data.title);
-        existing = rivals.find((r) => normalizeName(r.title) === needle) ?? null;
+        const needle = normalizeName(cleanEventTitle(data.title));
+        existing = rivals.find((r) => normalizeName(cleanEventTitle(r.title)) === needle) ?? null;
       }
 
       const record = {

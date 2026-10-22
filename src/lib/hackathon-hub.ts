@@ -64,6 +64,22 @@ export function getEventStatus(
 export function normalizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
+// Crawled <title> values carry the platform name as chrome: "Web Hackathon -
+// 2026 - Unstop". Left in place it both looks broken on the Hub AND defeats
+// title-based dedupe, because the same event from another source has no suffix.
+const PLATFORM_CHROME =
+  /\s*[-|–—:]\s*(unstop|devfolio|hackerearth|hack2skill|devpost|mlh|internshala|dare2compete)\s*$/i;
+
+export function cleanEventTitle(value: string | null | undefined): string {
+  let title = (value || '').trim().replace(/\s+/g, ' ');
+  for (let i = 0; i < 3; i += 1) {
+    const next = title.replace(PLATFORM_CHROME, '').trim();
+    if (next === title) break;
+    title = next;
+  }
+  return title;
+}
+
 // ponytail: dedupe uses exact normalized-name equality (URL match is the
 // primary key). Year-suffixed variants intentionally do NOT merge — safer
 // than fusing distinct yearly editions; admin merges those via publish.

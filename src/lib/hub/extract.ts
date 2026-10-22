@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256 } from './discovery';
-import { fetchPublicText } from './fetch-guard';
+import { fetchHtmlWithRender } from './firecrawl';
 import { HUB_CITIES, findHubCityInText } from './cities';
 import {
   coerceDateRange,
@@ -186,7 +186,12 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
   // Organiser must be evidence-backed ("hosted by X", JSON-LD organizer).
   // The crawled host is a platform (devfolio.co), never the event's organiser.
   const orgMatch = text.match(/(?:organised|organized|presented|hosted|powered)\s+by\s+([a-z0-9&.,'() ]{3,80})/i);
-  const organiser: string | null = orgMatch?.[1]?.trim().replace(/\s+/g, ' ') ?? null;
+  // The match runs greedily into whatever follows on a JS-app page, which is how
+  // "best viewed in chrome, opera, mo" became an organiser. A missing organiser
+  // is recoverable (marked mandatory-missing); a WRONG one is not — reject it.
+  const ORG_JUNK = /\b(best viewed|chrome|opera|safari|mozilla|firefox|cookies?|javascript|privacy|terms|reserved|disclaimer|sign in|log in|register now)\b/i;
+  const orgRaw = orgMatch?.[1]?.trim().replace(/\s+/g, ' ') ?? null;
+  const organiser: string | null = orgRaw && !ORG_JUNK.test(orgRaw) ? orgRaw.slice(0, 120) : null;
 
   // Dates: prefer ones near event-start phrasing — the first date on a page is
   // often a publish date, not the event date.
@@ -270,12 +275,33 @@ export function extractFromHtml(html: string, pageUrl: string, fallbackTitle?: s
 }
 
 // Confidence (§15): rule-based only, capped by evidence. Missing stays low.
+// Auto-validation threshold. A candidate must have every mandatory field AND
+// reach this score to skip human review.
+export const HUB_VERIFY_THRESHOLD = 0.9;
+
+// Sources we trust enough to auto-verify.
+const TRUSTED_SOURCES = ['OFFICIAL_WEBSITE', 'GOVERNMENT', 'ADMIN'];
+
+// Known hackathon aggregators: real events, but third-party listings.
+// INDIAHACKATHONS was absent from every tier, which capped it at 0.75 —
+// structurally below HUB_VERIFY_THRESHOLD, so 96 of the 111 candidates in a
+// live run could never verify no matter how good the extraction was.
+const AGGREGATOR_SOURCES = [
+  'DEVFOLIO',
+  'UNSTOP',
+  'HACKEREARTH',
+  'HACK2SKILL',
+  'MLH',
+  'COLLEGE_WEBSITE',
+  'INDIAHACKATHONS',
+];
+
 export function scoreConfidence(e: ExtractedEvent, sourceType: string): number {
   let score = 0.4;
   const mandatory = [e.eventName, e.organiser, e.startDate, e.registrationDeadline, e.registrationUrl, e.mode];
-  score += mandatory.filter(Boolean).length * 0.05;
-  if (['OFFICIAL_WEBSITE', 'GOVERNMENT', 'ADMIN'].includes(sourceType)) score += 0.2;
-  else if (['DEVFOLIO', 'UNSTOP', 'HACKEREARTH', 'HACK2SKILL', 'MLH', 'COLLEGE_WEBSITE'].includes(sourceType)) score += 0.1;
+  score += mandatory.filter(Boolean).length * 0.05; // all six -> 0.70
+  if (TRUSTED_SOURCES.includes(sourceType)) score += 0.2; // -> 0.90
+  else if (AGGREGATOR_SOURCES.includes(sourceType)) score += 0.15; // -> 0.85
   if (e.city) score += 0.03;
   if (e.prizePool) score += 0.02;
   return Math.min(0.95, Math.round(score * 100) / 100);
@@ -381,8 +407,10 @@ async function aiFill(html: string, current: ExtractedEvent, pageUrl: string): P
 }
 
 async function fetchPage(url: string): Promise<string> {
-  // SSRF-guarded (DNS allowlist + landing re-check in fetch-guard).
-  const { status, text } = await fetchPublicText(url, { timeoutMs: 15000, contentTypes: ['html', 'text'] });
+  // Rendering fallback inside: event pages on JS-shell platforms (Unstop,
+  // Devfolio) come back empty to a plain fetch. Rendering them is what lifts
+  // the extractable field count on those pages.
+  const { status, text } = await fetchHtmlWithRender(url, { timeoutMs: 15000 });
   if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`);
   return text;
 }
@@ -408,7 +436,7 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
       const pageHash = sha256(normalizeContent(html));
       // Auto-validate (§19): complete + confident → VERIFIED, else NEEDS_REVIEW.
       const status: HubCandidateStatus =
-        missing.length === 0 && confidence >= 0.9 ? 'VERIFIED' : 'NEEDS_REVIEW';
+        missing.length === 0 && confidence >= HUB_VERIFY_THRESHOLD ? 'VERIFIED' : 'NEEDS_REVIEW';
       await prisma.hubCandidate.update({
         where: { id: candidate.id },
         data: {
