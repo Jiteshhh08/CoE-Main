@@ -195,9 +195,9 @@ model User {
   reviewedHostingRequests     HostingRequest[]              @relation("HostingRequestReviewer")
   hostingRequestStatusChanges HostingRequestStatusHistory[] @relation("HostingRequestStatusChangedBy")
   industryId                  Int?
-  industry                    Industry?                     @relation(fields: [industryId], references: [id], onDelete: NoAction)
+  industry                    Industry?                     @relation(fields: [industryId], references: [id], onDelete: SetNull)
   departmentId                Int?
-  department                  Department?                   @relation(fields: [departmentId], references: [id], onDelete: NoAction)
+  department                  Department?                   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   isCoordinator               Boolean                       @default(false)
   erpPasswordEnc              String?                       @map("erp_password_enc")
   erpPasswordSetAt            DateTime?                     @map("erp_password_set_at")
@@ -236,15 +236,15 @@ model Problem {
   createdById         Int
   createdBy           User                  @relation("ProblemAuthor", fields: [createdById], references: [id], onDelete: Cascade)
   industryId          Int?
-  industry            Industry?             @relation(fields: [industryId], references: [id], onDelete: NoAction)
+  industry            Industry?             @relation(fields: [industryId], references: [id], onDelete: SetNull)
   eventId             Int?
-  event               HackathonEvent?       @relation(fields: [eventId], references: [id], onDelete: NoAction)
+  event               HackathonEvent?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
   claims              Claim[]
   supportDocumentKey  String?
   difficulty          String?
   sdgTags             Json?
   departmentId        Int?
-  department          Department?           @relation(fields: [departmentId], references: [id], onDelete: NoAction)
+  department          Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   applications        Application[]
   internshipTasks     InternshipTask[]      @relation("InternshipProblemTasks")
   internshipMessages  InternshipMessage[]   @relation("InternshipProblemMessages")
@@ -290,10 +290,10 @@ model Claim {
   mentor            String?            @db.VarChar(200)
   derivedInfo       Json?              // snapshot: { lead: StudentInfo|manual, members: {uid: StudentInfo} }
   venueId           Int?
-  venue             Venue?             @relation("ClaimVenue", fields: [venueId], references: [id], onDelete: NoAction)
+  venue             Venue?             @relation("ClaimVenue", fields: [venueId], references: [id], onDelete: SetNull)
   presentationScheduledAt DateTime?    // coordinator-set presentation slot for this team
   round2VenueId     Int?
-  round2Venue       Venue?             @relation("ClaimRound2Venue", fields: [round2VenueId], references: [id], onDelete: NoAction)
+  round2Venue       Venue?             @relation("ClaimRound2Venue", fields: [round2VenueId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   round2PresentationScheduledAt DateTime?
   tickets           Ticket[]
   attendanceRecords TicketAttendance[]
@@ -349,7 +349,7 @@ model HackathonSessionUploadLock {
   session         Int
   isOpen          Boolean        @default(false)
   updatedByUserId Int?
-  updatedBy       User?          @relation("SessionUploadLockUpdater", fields: [updatedByUserId], references: [id], onDelete: NoAction)
+  updatedBy       User?          @relation("SessionUploadLockUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -541,7 +541,7 @@ model HostingRequest {
   adminRemarks                String?                       @db.Text
   status                      HostingRequestStatus          @default(PENDING)
   reviewedById                Int?
-  reviewedBy                  User?                         @relation("HostingRequestReviewer", fields: [reviewedById], references: [id], onDelete: NoAction)
+  reviewedBy                  User?                         @relation("HostingRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedAt                  DateTime?
   assignedDomain              String?
   coolifyProjectId            String?
@@ -587,14 +587,14 @@ model HackathonEvent {
   createdById        Int
   createdBy          User                         @relation("HackathonCreator", fields: [createdById], references: [id], onDelete: Cascade)
   coordinatorId      Int?
-  coordinator        User?                        @relation("EventCoordinator", fields: [coordinatorId], references: [id], onDelete: NoAction)
+  coordinator        User?                        @relation("EventCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
   coordinators       EventCoordinator[]
   problems           Problem[]
   interests          HackathonInterest[]
   sessionUploadLocks HackathonSessionUploadLock[]
   pptFileKey         String?
   departmentId       Int?
-  department         Department?                  @relation(fields: [departmentId], references: [id], onDelete: NoAction)
+  department         Department?                  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   eventType          String                       @default("hackathon")
   config             Json?
   featured           Boolean                      @default(false)
@@ -727,9 +727,9 @@ model Ticket {
   userId            Int
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   bookingId         Int?               @unique
-  booking           Booking?           @relation(fields: [bookingId], references: [id], onDelete: NoAction)
+  booking           Booking?           @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   claimId           Int?
-  claim             Claim?             @relation(fields: [claimId], references: [id], onDelete: NoAction)
+  claim             Claim?             @relation(fields: [claimId], references: [id], onDelete: SetNull)
   title             String
   subjectName       String
   scheduledAt       DateTime?
@@ -764,7 +764,7 @@ model TicketAttendance {
   status            MemberAttendanceStatus @default(NOT_PRESENT)
   checkedInAt       DateTime?
   checkedInByUserId Int?
-  checkedInBy       User?                  @relation("AttendanceMarker", fields: [checkedInByUserId], references: [id], onDelete: NoAction)
+  checkedInBy       User?                  @relation("AttendanceMarker", fields: [checkedInByUserId], references: [id], onDelete: SetNull)
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
@@ -931,7 +931,7 @@ model RubricCategory {
   order            Int            @default(0)
   isCritical       Boolean        @default(false)
   parentCategoryId Int?
-  parentCategory   RubricCategory? @relation("RubricParent", fields: [parentCategoryId], references: [id], onDelete: NoAction)
+  parentCategory   RubricCategory? @relation("RubricParent", fields: [parentCategoryId], references: [id], onDelete: SetNull)
   childCategories  RubricCategory[] @relation("RubricParent")
   scores           RubricScore[]
 
@@ -1193,7 +1193,7 @@ model JudgeAssignment {
   judgeId   Int
   judge     User    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
   venueId   Int?
-  venue     Venue?  @relation(fields: [venueId], references: [id], onDelete: NoAction)
+  venue     Venue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
 
   @@unique([eventId, judgeId])
   @@index([eventId])
