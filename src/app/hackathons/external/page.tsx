@@ -51,6 +51,7 @@ export default function ExternalOpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortMode>('newest');
@@ -84,8 +85,9 @@ export default function ExternalOpportunitiesPage() {
 
   const load = async () => {
     try {
-      const res = await fetch('/api/opportunities', { credentials: 'include' });
+      const res = await fetch('/api/opportunities', { credentials: 'include', cache: 'no-store' });
       const json = (await res.json()) as ApiResponse<Opportunity[]>;
+      setIsAdmin(res.headers.get('x-is-admin') === '1');
       if (!json.success) throw new Error(json.message || 'Failed to load opportunities.');
       setOpportunities(json.data ?? []);
     } catch (err) {
@@ -216,8 +218,8 @@ export default function ExternalOpportunitiesPage() {
       });
       const json = (await res.json()) as ApiResponse<unknown>;
       if (!json.success) {
-        if (res.status === 401) throw new Error('Sign in as faculty or admin to submit opportunities.');
-        if (res.status === 403) throw new Error('Faculty/Admin only — you need faculty or admin access to submit opportunities.');
+        if (res.status === 401) throw new Error('Sign in as an admin to submit opportunities.');
+        if (res.status === 403) throw new Error('Admin only — you need admin access to submit opportunities.');
         throw new Error(json.message || 'Failed to submit opportunity.');
       }
       setSubmitSuccess('Opportunity submitted — it will appear once approved by an admin.');
@@ -305,21 +307,23 @@ export default function ExternalOpportunitiesPage() {
             <option value="newest">Newest first</option>
             <option value="deadline">Deadline soonest</option>
           </select>
-          <button
-            onClick={() => setSubmitOpen((open) => !open)}
-            className="border border-[#002155] bg-white px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white"
-          >
-            Submit Opportunity
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={() => setSubmitOpen((open) => !open)}
+              className="border border-[#002155] bg-white px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white"
+            >
+              Submit Opportunity
+            </button>
+          ) : null}
         </div>
       </div>
 
       {/* Submit form */}
-      {submitOpen ? (
+      {isAdmin && submitOpen ? (
         <section className="mb-8 max-w-4xl border border-[#c4c6d3] bg-white p-5 md:p-6">
           <h2 className="font-headline text-2xl font-bold text-[#002155]">Submit an Opportunity</h2>
           <p className="mt-1 text-xs text-[#747782]">
-            Faculty and admins can submit opportunities for review — submissions go live once approved.
+            Admins can submit opportunities for review — submissions go live once approved.
           </p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
@@ -581,7 +585,7 @@ export default function ExternalOpportunitiesPage() {
           <p className="font-headline text-xl font-bold text-[#002155]">No opportunities found</p>
           <p className="mt-1 text-sm text-[#747782]">
             {opportunities.length === 0
-              ? 'Opportunities curated by faculty and admins will appear here.'
+              ? 'Opportunities curated by admins will appear here.'
               : 'Try a different search, category or sort.'}
           </p>
         </div>

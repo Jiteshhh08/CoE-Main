@@ -40,7 +40,7 @@ graph TB
         SM[Sitemap + page crawl]
         CSV[CSV / Sheet import]
         MAN[Admin-pasted URLs]
-        FAC[Faculty submit form]
+        FAC[Admin submit form]
     end
 
     subgraph "Pipeline (src/lib/hub/)"
