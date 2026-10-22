@@ -3,6 +3,7 @@ import { authenticate, authorize, errorRes, successRes } from '@/lib/api-helpers
 import { runDiscovery } from '@/lib/hub/discovery';
 import { runExtraction } from '@/lib/hub/extract';
 import { runMonitor } from '@/lib/hub/monitor';
+import { isFirecrawlConfigured, rendererHealthy, renderBudgetState } from '@/lib/hub/firecrawl';
 
 // Hub automation jobs (§33–34, Next.js cron-route form): separate lib stages,
 // one guarded entrypoint with ?job=.
@@ -43,17 +44,29 @@ export async function GET(req: NextRequest) {
 
     const out: Record<string, unknown> = { job };
 
+    // One failing stage must never take the others down with it, and a failed
+    // stage must not stay locked out for its whole guard window.
+    const stage = async (name: string, fn: () => Promise<unknown>) => {
+      try {
+        return await fn();
+      } catch (err) {
+        lastRunAt.delete(name);
+        console.error(`Hub cron stage '${name}' failed:`, err);
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    };
+
     // Every stage here is bounded: discovery walks a fixed source list,
     // extraction takes a fixed batch, and monitoring takes a fixed batch +
     // time budget, rotating through the catalogue on later runs. Nothing is
     // queued, so the HTTP 200 means "this slice done", not "all done".
     if (job === 'discover' || job === 'all') {
       if (!guard('discover', 10 * 60_000)) out.discovery = { skipped: 'ran <10m ago' };
-      else out.discovery = await runDiscovery();
+      else out.discovery = await stage('discover', () => runDiscovery());
     }
     if (job === 'extract' || job === 'all') {
       if (!guard('extract', 10 * 60_000)) out.extraction = { skipped: 'ran <10m ago' };
-      else out.extraction = await runExtraction(10);
+      else out.extraction = await stage('extract', () => runExtraction(10));
     }
     if (job === 'monitor' || job === 'all') {
       if (!guard('monitor', 60 * 60_000)) out.monitor = { skipped: 'ran <1h ago' };
@@ -66,6 +79,14 @@ export async function GET(req: NextRequest) {
           monitorInFlight = false;
         }
       }
+    }
+
+    // Renderer visibility: without this a dead renderer degrades into "fewer
+    // candidates" and reads like a normal run.
+    if (job === 'all' || job === 'discover' || job === 'extract') {
+      out.renderer = isFirecrawlConfigured()
+        ? { configured: true, healthy: await rendererHealthy(), budget: renderBudgetState() }
+        : { configured: false };
     }
 
     return successRes(out, 'Hub cron executed successfully.');

@@ -27,8 +27,10 @@ import {
   renderBudgetAvailable,
   renderBudgetState,
   resetRenderBudget,
+  rendererHealthy,
 } from '../../src/lib/hub/firecrawl';
 import {
+  runDiscovery,
   discoverFromSearch,
   extractEventLinks,
   decodeEntities,
@@ -330,8 +332,16 @@ async function liveChecks() {
     return;
   }
 
-  await checkAsync('search: self-hosted provider returns https hits', async () => {
+  await checkAsync('search: self-hosted provider returns a well-formed hit list', async () => {
+    // Public engines CAPTCHA and rate-limit this host regularly, which is an
+    // upstream outage rather than a defect here — so the invariant is a
+    // well-formed result, and an empty one must be visibly reported.
     const hits = await searchWeb('unstop hackathon 2026 India register', 5);
+    if (hits.length === 0) {
+      console.log('    NO HITS — upstream engines are rate-limited/captcha-ed; runDiscovery reports this as an error');
+      assert.ok(Array.isArray(hits));
+      return;
+    }
     assert.ok(hits.length > 0, 'expected at least one hit');
     assert.ok(hits.every((h) => h.url.startsWith('https://')), 'all urls must be https');
     assert.ok(hits.every((h) => h.title.length > 0), 'all hits need a title');
@@ -346,6 +356,43 @@ async function liveChecks() {
     const renderedLen = vis(rendered.text);
     console.log(`    ${LISTING_URL}\n    plain ${plainLen}c -> rendered ${renderedLen}c`);
     assert.ok(renderedLen > plainLen * 2, `render should more than double text (${plainLen} -> ${renderedLen})`);
+  });
+
+  await checkAsync('renderer: refuses internal addresses (SSRF bypass closed)', async () => {
+    // The renderer itself will fetch anything it is handed, so the guard has to
+    // run before the request leaves the app.
+    assert.strictEqual(await renderHtml('http://127.0.0.1:9/x'), null, 'loopback must be refused');
+    assert.strictEqual(await renderHtml('https://192.168.1.1/'), null, 'private IP must be refused');
+    assert.strictEqual(await renderHtml('http://unstop.com/hackathons'), null, 'non-https must be refused');
+  });
+
+  await checkAsync('renderer: health probe reports reachability', async () => {
+    assert.strictEqual(await rendererHealthy(), true, 'live renderer must report healthy');
+    const prev = process.env.FIRECRAWL_URL;
+    delete process.env.FIRECRAWL_URL;
+    assert.strictEqual(await rendererHealthy(), false, 'unconfigured renderer must report unhealthy');
+    if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
+  });
+
+  await checkAsync('render: a THROWING plain fetch falls back to the renderer', async () => {
+    // application/json makes the plain path reject on content type, which is a
+    // throw rather than a status — the exact case that used to lose the page.
+    const r = await fetchHtmlWithRender('https://jsonplaceholder.typicode.com/todos/1', { timeoutMs: 8000 });
+    assert.strictEqual(r.rendered, true, 'must have been rendered');
+    assert.ok(r.text.length > 0, 'rendered body must not be empty');
+  });
+
+  await checkAsync('render: a throwing plain fetch still throws with no renderer', async () => {
+    const prev = process.env.FIRECRAWL_URL;
+    delete process.env.FIRECRAWL_URL;
+    let threw = false;
+    try {
+      await fetchHtmlWithRender('https://jsonplaceholder.typicode.com/todos/1', { timeoutMs: 8000 });
+    } catch {
+      threw = true;
+    }
+    if (prev !== undefined) process.env.FIRECRAWL_URL = prev;
+    assert.strictEqual(threw, true, 'behaviour without a renderer must be unchanged');
   });
 
   await checkAsync('render budget: exhausted budget makes renderHtml a no-op (no hang)', async () => {
@@ -368,6 +415,9 @@ async function liveChecks() {
   });
 
   await checkAsync('discovery: rendered listing yields real event links, junk rejected', async () => {
+    // This one genuinely needs to render, so it claims its own budget instead of
+    // inheriting whatever earlier checks spent.
+    resetRenderBudget();
     const html = await renderHtml(LISTING_URL);
     assert.ok(html, 'render returned html');
     const links = extractEventLinks(html as string, LISTING_URL);
@@ -414,16 +464,23 @@ async function liveChecks() {
   });
 
   // ─── E. Search -> candidate insertion ───
-  await checkAsync('discovery: search stage inserts real aggregator candidates', async () => {
-    // Start from a clean slate so the check does not depend on prior runs.
+  await checkAsync('discovery: search stage degrades loudly, never silently', async () => {
+    // Public search engines rate-limit and CAPTCHA freely; that must surface as
+    // a reported error, because zero-results-with-no-error looks exactly like a
+    // healthy run that simply found nothing.
     await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
     const res = await discoverFromSearch('unstop');
+    assert.ok(typeof res.discovered === 'number' && typeof res.duplicates === 'number');
+    console.log(`    discoverFromSearch(unstop) -> discovered=${res.discovered}`);
+    if (res.discovered === 0) {
+      assert.ok(res.error, 'zero results must be reported as an error, not swallowed');
+      console.log(`    reported: ${String(res.error).slice(0, 76)}`);
+    }
     const rows = await prisma.hubCandidate.findMany({
       where: { source: 'unstop' },
       select: { url: true, sourceType: true, status: true },
     });
-    console.log(`    discoverFromSearch(unstop) -> discovered=${res.discovered}, rows=${rows.length}`);
-    assert.ok(rows.length > 0, 'expected at least one unstop candidate');
+    assert.ok(rows.every((r: { sourceType: string }) => r.sourceType === 'UNSTOP'));
     assert.ok(rows.every((r: { sourceType: string }) => r.sourceType === 'UNSTOP'));
     assert.ok(rows.every((r: { status: string }) => r.status === 'DISCOVERED'));
     assert.ok(
@@ -434,6 +491,22 @@ async function liveChecks() {
       rows.every((r: { url: string }) => !/unstop\.com\/hackathons$/.test(r.url)),
       'listing page must never be ingested',
     );
+  });
+
+  await checkAsync('discovery: crawls events even when the search backend is dead', async () => {
+    // The search stage is best-effort (engines CAPTCHA this IP regularly). The
+    // deterministic crawl+render path is what discovery must actually rely on.
+    await prisma.hubCandidate.deleteMany({});
+    const res = await runDiscovery();
+    const bySource = await prisma.hubCandidate.groupBy({ by: ['source'], _count: { _all: true } });
+    const counts = bySource.map((b: any) => `${b.source}=${b._count._all}`).join(' ');
+    console.log(`    discovered=${res.discovered} in a run with search degraded: ${counts}`);
+    assert.ok(res.discovered > 0, 'a dead search backend must not empty the run');
+    const renderable = await prisma.hubCandidate.count({
+      where: { source: { in: ['unstop', 'devfolio', 'hackerearth'] } },
+    });
+    assert.ok(renderable > 0, 'renderable sources must still yield events via crawl');
+    await prisma.hubCandidate.deleteMany({});
   });
 
   await checkAsync('discovery: re-running never duplicates a URL', async () => {

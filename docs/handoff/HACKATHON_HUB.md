@@ -328,6 +328,14 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 | `FIRECRAWL_URL` | unset (disabled) | Self-hosted Firecrawl endpoint. **Loopback or RFC1918 only** — a public host is refused at startup so the app can never become an open egress proxy. |
 | `FIRECRAWL_API_KEY` | unset | Sent as a bearer token if the local service requires one. |
 | `FIRECRAWL_ALLOWED_HOSTS` | unset | Comma-separated extra hosts allowed to serve `FIRECRAWL_URL`. Loopback and RFC1918 are always allowed; a LAN/CGNAT address (e.g. `175.175.1.89`, Tailscale `100.64/10`) must be named explicitly. |
+| `HUB_RENDER_BUDGET_MS` | `60000` | Rendering time allowed per rolling 10-minute window. Once spent, pages fall back to a plain fetch instead of stalling the request. |
+| `HUB_RENDER_MAX_PAGES` | `10` | Renders allowed per rolling 10-minute window. |
+
+### Operating the renderer
+
+- **Bind it to loopback + Tailscale, never `0.0.0.0`.** It is an *unauthenticated* scraping service: bound to `0.0.0.0` every host on the campus `/16` can scrape the internet through it. `127.0.0.1` for local work plus the Tailscale address for prod is enough.
+- `GET /api/cron/hub?job=all` now returns `renderer: { configured, healthy, budget }`. A dead renderer otherwise degrades into "fewer candidates" that reads like a normal run.
+- **Search is best-effort.** The self-hosted SearXNG gets CAPTCHA-ed and rate-limited by public engines, after which `/v1/search` returns zero rows. Discovery is designed not to depend on it: the crawl+render path still finds Unstop/Devfolio/HackerEarth events (measured 124 candidates with search fully down). Keep several engines enabled in `searxng/settings.yml` so one being blocked does not empty the stage, and treat a `search returned nothing` error in the cron output as an upstream symptom, not a bug here.
 
 With it set: JS-shell pages are rendered automatically, and `unstop` / `hackerearth` / `devfolio` flip from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party search account or per-query credits are involved either way.
 

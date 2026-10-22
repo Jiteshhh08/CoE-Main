@@ -1,4 +1,4 @@
-import { fetchPublicText } from './fetch-guard';
+import { assertPublicHttpsUrl, fetchPublicText } from './fetch-guard';
 
 // Self-hosted Firecrawl: renders JS-shell pages that a plain fetch sees as an
 // empty shell, and provides open-internet search. Replaces the paid search API
@@ -119,6 +119,14 @@ export async function renderHtml(url: string): Promise<string | null> {
   const base = endpoint();
   if (!base) return null;
   if (!renderBudgetAvailable()) return null;
+  // The renderer will fetch ANY address it is handed, including internal ones.
+  // Without this the render fallback is an SSRF bypass around the guard the
+  // plain path already enforces.
+  try {
+    await assertPublicHttpsUrl(url);
+  } catch {
+    return null;
+  }
   const started = Date.now();
   windowPages += 1;
   try {
@@ -157,18 +165,48 @@ export async function fetchHtmlWithRender(
   url: string,
   opts: { timeoutMs?: number; maxChars?: number; render?: boolean } = {},
 ): Promise<{ status: number; text: string; rendered: boolean }> {
-  const { status, text } = await fetchPublicText(url, {
-    timeoutMs: opts.timeoutMs ?? 15_000,
-    maxChars: opts.maxChars ?? 1_500_000,
-    contentTypes: ['html', 'text'],
-  });
   const wantRender = opts.render !== false && isFirecrawlConfigured();
+  let status = 0;
+  let text = '';
+  try {
+    const plain = await fetchPublicText(url, {
+      timeoutMs: opts.timeoutMs ?? 15_000,
+      maxChars: opts.maxChars ?? 1_500_000,
+      contentTypes: ['html', 'text'],
+    });
+    status = plain.status;
+    text = plain.text;
+  } catch (err) {
+    // Bot walls, TLS refusals and timeouts THROW rather than return a status.
+    // That is precisely the case the renderer exists for, so retry through it
+    // instead of bubbling up and losing the page entirely.
+    if (!wantRender) throw err;
+    const rendered = await renderHtml(url);
+    if (!rendered) throw err;
+    return { status: 200, text: rendered, rendered: true };
+  }
   if (!wantRender) return { status, text, rendered: false };
   const usable = status >= 200 && status < 300 && visibleTextLength(text) >= SHELL_TEXT_THRESHOLD;
   if (usable) return { status, text, rendered: false };
   const rendered = await renderHtml(url);
   if (!rendered) return { status, text, rendered: false };
   return { status: 200, text: rendered, rendered: true };
+}
+
+/**
+ * Is the renderer actually reachable right now? Surfaced in the cron response so
+ * a dead renderer shows up as `{healthy: false}` instead of quietly producing a
+ * thinner candidate list that looks like a normal run.
+ */
+export async function rendererHealthy(): Promise<boolean> {
+  const base = endpoint();
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/`, { signal: AbortSignal.timeout(3000) });
+    return res.status < 500;
+  } catch {
+    return false;
+  }
 }
 
 export type WebSearchHit = { title: string; url: string; snippet: string };
