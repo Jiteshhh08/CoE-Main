@@ -50,6 +50,7 @@ import {
   isAttendable,
   isOver,
   percentileRanks,
+  rejectionReason,
   type RankableOpportunity,
 } from '../../src/lib/hub/ranking';
 
@@ -375,6 +376,27 @@ async function rankingChecks() {
     const online = { ...(ev as Record<string, unknown>), mode: 'ONLINE' } as never;
     assert.ok(!mandatoryMissing(online).includes('city'), 'online events do not need a city');
     assert.ok(wouldAutoVerify(online, 'GOVERNMENT'), 'online without a city is fine');
+  });
+
+  await checkAsync('gate: rejection is one rule shared by every path', async () => {
+    const now = Date.parse('2026-10-22T00:00:00Z');
+    const at = (e: Record<string, unknown>) => rejectionReason(e as never, now);
+    // Finished: the single most common reason an event must not be published.
+    assert.strictEqual(at({ mode: 'ONLINE', endDate: '2026-10-01' }), 'Event already finished');
+    assert.strictEqual(at({ mode: 'ONLINE', startDate: '2026-09-01' }), 'Event already finished', 'start date falls back when no end date');
+    // Offline outside India.
+    assert.strictEqual(at({ mode: 'OFFLINE', country: 'United States', endDate: '2026-12-01' }), 'Offline event outside India');
+    assert.strictEqual(at({ mode: 'HYBRID', country: null, endDate: '2026-12-01' }), 'Offline event outside India', 'unknown country is not assumed Indian');
+    // Allowed: India in person, anywhere online, and unknown mode is not guessed at.
+    assert.strictEqual(at({ mode: 'OFFLINE', country: 'India', endDate: '2026-12-01' }), null);
+    assert.strictEqual(at({ mode: 'ONLINE', country: null, endDate: '2026-12-01' }), null);
+    assert.strictEqual(at({ mode: 'ONLINE', country: 'Germany', endDate: '2026-12-01' }), null, 'online is welcome from anywhere');
+    // Unknown mode is not guessed at: without "online" to excuse it, the event
+    // still has to prove it is in India before it is publishable.
+    assert.strictEqual(at({ mode: null, endDate: '2026-12-01' }), 'Offline event outside India');
+    assert.strictEqual(at({ mode: null, country: 'India', endDate: '2026-12-01' }), null);
+    // An event ending today is still running.
+    assert.strictEqual(at({ mode: 'ONLINE', endDate: '2026-10-22' }), null);
   });
 
   // ── percentile: comparable across sources, honest about missing counts ──
@@ -938,8 +960,13 @@ async function liveChecks() {
     assert.ok(actor, 'cross-source check needs an ADMIN user');
     await prisma.hubCandidate.deleteMany({ where: { source: 'unstop' } });
     await discoverFromStructured('unstop');
-    const seed = await prisma.hubCandidate.findFirst({ where: { source: 'unstop' } });
-    assert.ok(seed, 'need a real unstop row to seed with');
+    // Pick a seed that CAN match. The first row is whatever the live API happens
+    // to return, and a short title like "Octocode" never keys at all — the
+    // cross-source rule deliberately refuses to fuse generic names, so seeding
+    // from it tested nothing and failed whenever the API reordered.
+    const pool = await prisma.hubCandidate.findMany({ where: { source: 'unstop' }, take: 40 });
+    const seed = pool.find((c) => titleKey(c.title ?? '') !== null);
+    assert.ok(seed, 'need an unstop row with a distinctive title to seed with');
     const seedExtracted = (seed.extracted ?? {}) as { startDate?: string | null };
     const seedUrl = seed.url;
     const seedTitle = seed.title as string;

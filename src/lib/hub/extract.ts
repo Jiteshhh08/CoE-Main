@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { normalizeContent, sha256, isIndividualEventPage, registersOnEventPage } from './discovery';
 import { deriveRegistrationDeadline, scoreConfidence, mandatoryMissing, HUB_VERIFY_THRESHOLD } from './confidence';
+import { rejectionReason } from './ranking';
 import { fetchHtmlWithRender } from './firecrawl';
 import { HUB_CITIES, findHubCityInText } from './cities';
 import {
@@ -398,10 +399,10 @@ async function fetchPage(url: string): Promise<string> {
   return text;
 }
 
-export type ExtractionResult = { processed: number; verified: number; needsReview: number; errors: string[] };
+export type ExtractionResult = { processed: number; verified: number; needsReview: number; rejected?: number; errors: string[] };
 
 export async function runExtraction(limit = 10): Promise<ExtractionResult> {
-  const result: ExtractionResult = { processed: 0, verified: 0, needsReview: 0, errors: [] };
+  const result: ExtractionResult = { processed: 0, verified: 0, needsReview: 0, rejected: 0, errors: [] };
   const candidates = await prisma.hubCandidate.findMany({
     where: { status: { in: ['DISCOVERED', 'PROCESSING'] } },
     orderBy: { discoveredAt: 'asc' },
@@ -431,12 +432,20 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
         extracted.registrationUrl = candidate.url;
       }
       extracted = deriveRegistrationDeadline(extracted);
+      // The same gates discovery applies before it will even store a candidate.
+      // They were missing here, and this is the path every crawled candidate
+      // takes — so 58 already-finished and 75 offline-outside-India events went
+      // straight from crawl to VERIFIED to the Hub, having never been asked
+      // either question. Rejected outright rather than sent to review: no amount
+      // of human attention makes a finished event worth publishing.
+      const rejected = rejectionReason(extracted);
       const confidence = scoreConfidence(extracted, candidate.sourceType);
       const missing = mandatoryMissing(extracted);
       const pageHash = sha256(normalizeContent(html));
       // Auto-validate (§19): complete + confident → VERIFIED, else NEEDS_REVIEW.
       const status: HubCandidateStatus =
-        missing.length === 0 && confidence >= HUB_VERIFY_THRESHOLD ? 'VERIFIED' : 'NEEDS_REVIEW';
+        rejected ? 'REJECTED'
+          : missing.length === 0 && confidence >= HUB_VERIFY_THRESHOLD ? 'VERIFIED' : 'NEEDS_REVIEW';
       await prisma.hubCandidate.update({
         where: { id: candidate.id },
         data: {
@@ -445,11 +454,12 @@ export async function runExtraction(limit = 10): Promise<ExtractionResult> {
           extracted: { ...extracted, missing },
           confidence,
           pageHash,
-          error: missing.length > 0 ? `Missing: ${missing.join(', ')}` : null,
+          error: rejected ?? (missing.length > 0 ? `Missing: ${missing.join(', ')}` : null),
         },
       });
       result.processed++;
       if (status === 'VERIFIED') result.verified++;
+      else if (status === 'REJECTED') result.rejected = (result.rejected ?? 0) + 1;
       else result.needsReview++;
     } catch (err) {
       const msg = `Candidate ${candidate.id}: ${err instanceof Error ? err.message : String(err)}`;

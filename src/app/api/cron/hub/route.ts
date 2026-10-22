@@ -6,6 +6,7 @@ import { runMonitor } from '@/lib/hub/monitor';
 import { isFirecrawlConfigured, rendererHealthy, renderBudgetState } from '@/lib/hub/firecrawl';
 import prisma from '@/lib/prisma';
 import { deriveRegistrationDeadline, mandatoryMissing, scoreConfidence, wouldAutoVerify } from '@/lib/hub/confidence';
+import { rejectionReason } from '@/lib/hub/ranking';
 import type { ExtractedEvent } from '@/lib/hub/extract';
 
 // Hub automation jobs (§33–34, Next.js cron-route form): separate lib stages,
@@ -98,7 +99,11 @@ export async function GET(req: NextRequest) {
           if (!stored.registrationDeadline && event.registrationDeadline) deadlineFilled += 1;
           const missing = mandatoryMissing(event);
           const confidence = scoreConfidence(event, row.sourceType);
-          const status = wouldAutoVerify(event, row.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW';
+          // Same gates as discovery/extraction. Without this a re-score can only
+          // ever shuffle rows between VERIFIED and NEEDS_REVIEW and would leave
+          // finished or out-of-India events sitting there as valid.
+          const rejected = rejectionReason(event);
+          const status = rejected ? 'REJECTED' : wouldAutoVerify(event, row.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW';
           if (status === row.status && confidence === row.confidence) continue;
           await prisma.hubCandidate.update({
             where: { id: row.id },
@@ -106,7 +111,7 @@ export async function GET(req: NextRequest) {
               status,
               confidence,
               extracted: event as unknown as object,
-              error: missing.length > 0 ? `Missing: ${missing.join(', ')}` : null,
+              error: rejected ?? (missing.length > 0 ? `Missing: ${missing.join(', ')}` : null),
             },
           });
           if (status === 'VERIFIED' && row.status !== 'VERIFIED') promoted += 1;

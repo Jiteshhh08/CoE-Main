@@ -35,7 +35,7 @@ export function percentileRanks(values: Array<number | null>): Array<number | nu
  * Already over, therefore unjoinable. An event that ends today is still kept —
  * on-the-spot registration is real. Unknown dates are never assumed to be over.
  */
-export function isOver(event: ExtractedEvent, now = Date.now()): boolean {
+export function isOver(event: { startDate?: string | null; endDate?: string | null }, now = Date.now()): boolean {
   const end = event.endDate ?? event.startDate;
   if (!end) return false;
   const t = Date.parse(end);
@@ -126,4 +126,22 @@ export function computeHubScore(o: RankableOpportunity, now = Date.now()): numbe
   }
 
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+/**
+ * Why an event may not be published at all, or null when it may.
+ *
+ * Discovery, extraction and revalidation must all ask this identical question.
+ * They did not: the gates lived only in discovery, and the extraction path — the
+ * one every crawled candidate takes — had no idea they existed, so 58 finished
+ * and 75 offline-outside-India events went from crawl to verified to the live
+ * Hub without either question being asked. One function, three callers.
+ */
+export function rejectionReason(
+  event: { mode: string | null; country?: string | null; endDate?: string | null },
+  now: number = Date.now(),
+): string | null {
+  if (isOver(event, now)) return 'Event already finished';
+  if (!isAttendable(event)) return 'Offline event outside India';
+  return null;
 }
