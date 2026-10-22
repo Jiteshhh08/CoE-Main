@@ -65,6 +65,8 @@ export const RELEVANCE_WEIGHTS = {
   verified: 5,
 } as const;
 
+import { resolveHubCity } from './cities';
+
 const INDIA = new Set(['india', 'in', 'bharat']);
 
 /**
@@ -77,11 +79,21 @@ const INDIA = new Set(['india', 'in', 'bharat']);
  * so there is nothing to confirm the location with. Guessing here would put
  * unverifiable events in front of students.
  */
-export function isAttendable(event: { mode: string | null; country?: string | null }): boolean {
+export function isAttendable(event: {
+  mode: string | null;
+  country?: string | null;
+  city?: string | null;
+}): boolean {
   if (event.mode === 'ONLINE') return true;
   const country = (event.country ?? '').trim().toLowerCase();
-  if (!country) return false;
-  return INDIA.has(country);
+  if (country) return INDIA.has(country);
+  // No country field, but a city we can place. The Hub city registry is an
+  // India-only list, so a recognised city is positive evidence of India — not an
+  // assumption. indiahackathons never publishes a country, and treating the gap
+  // as "probably abroad" deleted 75 real in-person Indian hackathons (Hyderabad,
+  // Mumbai, Chennai, Jaipur) that the Hub exists to surface. A city we do not
+  // recognise still fails, so genuinely unknown locations are not guessed at.
+  return Boolean(resolveHubCity(event.city));
 }
 
 /** Points for whether a TCET student can realistically attend. */
@@ -138,7 +150,7 @@ export function computeHubScore(o: RankableOpportunity, now = Date.now()): numbe
  * Hub without either question being asked. One function, three callers.
  */
 export function rejectionReason(
-  event: { mode: string | null; country?: string | null; endDate?: string | null },
+  event: { mode: string | null; country?: string | null; city?: string | null; endDate?: string | null },
   now: number = Date.now(),
 ): string | null {
   if (isOver(event, now)) return 'Event already finished';

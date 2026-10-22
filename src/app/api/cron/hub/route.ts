@@ -87,7 +87,11 @@ export async function GET(req: NextRequest) {
     if (job === 'revalidate') {
       out.revalidation = await stage('revalidate', async () => {
         const rows = await prisma.hubCandidate.findMany({
-          where: { status: { in: ['VERIFIED', 'NEEDS_REVIEW'] } },
+          // REJECTED included on purpose: a rejection is a verdict on the rules
+          // as they stood, so a rule change must be able to revisit it. Excluding
+          // it made every rejection permanent — fixing the India rule could not
+          // rescue the 75 Indian events it had wrongly dropped.
+          where: { status: { in: ['VERIFIED', 'NEEDS_REVIEW', 'REJECTED'] } },
           select: { id: true, sourceType: true, extracted: true, status: true, confidence: true },
         });
         let promoted = 0;

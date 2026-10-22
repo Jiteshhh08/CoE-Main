@@ -399,6 +399,21 @@ async function rankingChecks() {
     assert.strictEqual(at({ mode: 'ONLINE', endDate: '2026-10-22' }), null);
   });
 
+  await checkAsync('gate: a known Indian city proves India when country is absent', async () => {
+    // indiahackathons publishes a city but never a country. Dropping on the
+    // missing country alone deleted 75 real in-person Indian hackathons.
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: null, city: 'Hyderabad' }), true);
+    assert.strictEqual(isAttendable({ mode: 'HYBRID', country: null, city: 'Mumbai' }), true);
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: null, city: 'bombay' }), true, 'aliases resolve');
+    // A city we cannot place is still not assumed Indian.
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: null, city: 'Springfield' }), false);
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: null, city: null }), false);
+    // An explicit foreign country still wins over a city.
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: 'United Kingdom', city: 'London' }), false);
+    // And online is unaffected.
+    assert.strictEqual(isAttendable({ mode: 'ONLINE', country: 'Germany', city: 'Berlin' }), true);
+  });
+
   // ── percentile: comparable across sources, honest about missing counts ──
   await checkAsync('ranking: percentile is monotonic and keeps nulls null', async () => {
     const ranks = percentileRanks([10, null, 100, 0, 55]);
