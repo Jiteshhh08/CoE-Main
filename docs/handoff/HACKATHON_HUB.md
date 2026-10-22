@@ -40,7 +40,7 @@ graph TB
         SM[Sitemap + page crawl]
         CSV[CSV / Sheet import]
         MAN[Admin-pasted URLs]
-        FAC[Admin submit form]
+        SUBMIT[Admin submit form]
     end
 
     subgraph "Pipeline (src/lib/hub/)"
@@ -69,7 +69,7 @@ graph TB
     SM --> CAND
     MAN --> CAND
     CSV --> OPP
-    FAC --> OPP
+    SUBMIT --> OPP
     CAND --> EXT --> REV
     REV -->|yes| VER
     REV -->|no| NR
@@ -253,7 +253,7 @@ No Google OAuth needed: maintain a Sheet, use File → Share → **Publish to we
 
 **Optional (blank → NULL):** `description`, `eligibility`, `prize`, `applicationUrl`, `registrationDeadline`, `themes`/`domains`, `technologies`, `mode` (`ONLINE`/`OFFLINE`/`HYBRID`), `venue`, `city`, `state`, `startDate`, `endDate`, `teamMin`/`teamMax` (1–20), `sourceUrl`, `sourceType`. Header names are forgiving (`eventName`/`title`/`name`, `organiser`, `deadline`, `registrationUrl`/`applyLink`, `officialUrl`, `prizePool`, `domains`, `eventType`… — full map in `src/lib/hub/csv.ts`).
 
-**Semantics:** admin imports publish immediately (`APPROVED + ADMIN_VERIFIED + showInHub`); faculty imports land `PENDING`. Dedupe by source URL, then normalized name + organizer. **Dates must be real ISO dates** (`YYYY-MM-DD`, or an ISO timestamp); `N/A`, `-`, `null`, impossible calendar dates and ambiguous numeric forms are rejected per row with an actionable error — they can never reach Prisma as an Invalid `Date`. **Conflict guard (shared with pipeline publication):** rows colliding with `VERIFIED`/`ADMIN_VERIFIED`/`OFFICIAL_SOURCE` records are rejected and counted in `conflicts`, never overwritten. Updates to unverified rows are null-safe (blank cells do not erase existing values) and a blank/placeholder description never replaces a real one. Every run writes a `HubImportLog`.
+**Semantics:** the import route is admin-only, so every import publishes immediately (`APPROVED + ADMIN_VERIFIED + showInHub`); `runCsvImport` still computes `autoApprove` from the actor's role, but no non-admin can reach it. Dedupe by source URL, then normalized name + organizer. **Dates must be real ISO dates** (`YYYY-MM-DD`, or an ISO timestamp); `N/A`, `-`, `null`, impossible calendar dates and ambiguous numeric forms are rejected per row with an actionable error — they can never reach Prisma as an Invalid `Date`. **Conflict guard (shared with pipeline publication):** rows colliding with `VERIFIED`/`ADMIN_VERIFIED`/`OFFICIAL_SOURCE` records are rejected and counted in `conflicts`, never overwritten. Updates to unverified rows are null-safe (blank cells do not erase existing values) and a blank/placeholder description never replaces a real one. Every run writes a `HubImportLog`.
 
 ---
 

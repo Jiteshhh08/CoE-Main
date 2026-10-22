@@ -87,8 +87,8 @@ export default function ExternalOpportunitiesPage() {
     try {
       const res = await fetch('/api/opportunities', { credentials: 'include', cache: 'no-store' });
       const json = (await res.json()) as ApiResponse<Opportunity[]>;
-      setIsAdmin(res.headers.get('x-is-admin') === '1');
       if (!json.success) throw new Error(json.message || 'Failed to load opportunities.');
+      setIsAdmin(res.headers.get('x-is-admin') === '1');
       setOpportunities(json.data ?? []);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to load opportunities.');
