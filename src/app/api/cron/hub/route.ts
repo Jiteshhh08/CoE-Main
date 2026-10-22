@@ -26,7 +26,7 @@ function isAuthorizedCron(req: NextRequest) {
   return Boolean(user && authorize(user, 'ADMIN'));
 }
 
-// GET /api/cron/hub?job=discover|extract|monitor|all
+// GET /api/cron/hub?job=discover|extract|monitor|all[&batch=1-40][&force=1]
 export async function GET(req: NextRequest) {
   try {
     if (!isAuthorizedCron(req)) return errorRes('Forbidden', ['Invalid cron secret'], 403);
@@ -35,7 +35,16 @@ export async function GET(req: NextRequest) {
     const valid = ['discover', 'extract', 'monitor', 'all'];
     if (!valid.includes(job)) return errorRes('Unknown job', [`Use one of: ${valid.join(', ')}`], 400);
 
+    // A batch is a knob, not a constant: clearing a backlog of discovered-but-
+    // never-extracted candidates takes ~10 calls at the cron default, which the
+    // 10-minute guard spaces out to two hours. An operator holding the cron
+    // secret can raise the batch and skip the guard to drain it in one sitting.
+    const batchRaw = Number(req.nextUrl.searchParams.get('batch'));
+    const batch = Number.isInteger(batchRaw) && batchRaw > 0 ? Math.min(batchRaw, 40) : 10;
+    const force = req.nextUrl.searchParams.get('force') === '1';
+
     const guard = (name: string, ms: number) => {
+      if (force) return true;
       const last = lastRunAt.get(name) ?? 0;
       if (Date.now() - last < ms) return false;
       lastRunAt.set(name, Date.now());
@@ -66,7 +75,7 @@ export async function GET(req: NextRequest) {
     }
     if (job === 'extract' || job === 'all') {
       if (!guard('extract', 10 * 60_000)) out.extraction = { skipped: 'ran <10m ago' };
-      else out.extraction = await stage('extract', () => runExtraction(10));
+      else out.extraction = await stage('extract', () => runExtraction(batch));
     }
     if (job === 'monitor' || job === 'all') {
       if (!guard('monitor', 60 * 60_000)) out.monitor = { skipped: 'ran <1h ago' };
