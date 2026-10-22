@@ -92,10 +92,16 @@ type Row = {
   teamMax: number | null;
   sourceUrl: string | null;
   sourceType: string;
+  country: string | null;
+  registrations: number | null;
   verificationStatus: string;
   lastVerifiedAt: Date | null;
   createdAt: Date;
 };
+
+/** Ordering the Hub offers. `relevant` is the default (see the sort block). */
+const SORT_KEYS = ['relevant', 'popular', 'upcoming', 'deadline', 'newest'] as const;
+type SortKey = (typeof SORT_KEYS)[number];
 
 export async function GET(req: NextRequest) {
   try {
@@ -114,7 +120,10 @@ export async function GET(req: NextRequest) {
     const month = searchParams.get('month')?.trim() || undefined;
     const regStatusFilter = searchParams.get('regStatus')?.trim().toUpperCase() || undefined;
     const eventStatusFilter = searchParams.get('eventStatus')?.trim().toUpperCase() || undefined;
-    const sort = searchParams.get('sort') === 'deadline' ? 'deadline' : 'newest';
+    // "relevant" is the default: the Hub should open on the events most worth
+    // a student's attention, not on whatever was ingested most recently.
+    const sortRaw = searchParams.get('sort')?.trim().toLowerCase();
+    const sort: SortKey = SORT_KEYS.includes(sortRaw as SortKey) ? (sortRaw as SortKey) : 'relevant';
 
     const limitRaw = Number(searchParams.get('limit') ?? DEFAULT_LIMIT);
     const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, MAX_LIMIT) : DEFAULT_LIMIT;
@@ -150,10 +159,18 @@ export async function GET(req: NextRequest) {
         : {}),
     };
 
+    // MySQL sorts NULLs as the lowest value, so a missing score or count lands
+    // last under DESC — unscored rows never outrank scored ones.
     const orderBy: Prisma.OpportunityOrderByWithRelationInput[] =
       sort === 'deadline'
         ? [{ registrationDeadline: 'asc' }, { id: 'asc' }]
-        : [{ createdAt: 'desc' }, { id: 'desc' }];
+        : sort === 'popular'
+          ? [{ registrations: 'desc' }, { id: 'desc' }]
+          : sort === 'upcoming'
+            ? [{ startDate: 'asc' }, { id: 'asc' }]
+            : sort === 'newest'
+              ? [{ createdAt: 'desc' }, { id: 'desc' }]
+              : [{ hubScore: 'desc' }, { registrationDeadline: 'asc' }, { id: 'desc' }];
 
     // Explicit select: internal fields (createdById = staff user ids,
     // pageHash = crawler state) must never leave this public endpoint.
@@ -184,6 +201,8 @@ export async function GET(req: NextRequest) {
       teamMax: true,
       sourceUrl: true,
       sourceType: true,
+      country: true,
+      registrations: true,
       verificationStatus: true,
       lastVerifiedAt: true,
       createdAt: true,

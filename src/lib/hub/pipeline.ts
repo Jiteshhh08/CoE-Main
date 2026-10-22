@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { normalizeName, cleanEventTitle, getRegistrationStatus, getEventStatus, clipDbString, fitUrl } from '@/lib/hackathon-hub';
 import { isSameEvent, titleKey } from './dedupe';
+import { computeHubScore } from './ranking';
 import { cityCoords } from './cities';
 import { coerceDateRange, toDbDate } from './dates';
 import type { ExtractedEvent } from './extract';
@@ -112,6 +113,26 @@ export async function publishCandidate(candidateId: number, actorId: number): Pr
   }
 
   const dates = coerceDateRange(e.startDate, e.endDate);
+  // Percentile comes out of stored JSON, so it is re-validated here rather than
+  // trusted to still be a 0-100 integer.
+  const popularityRaw = Number(e.popularity);
+  const popularity =
+    Number.isFinite(popularityRaw) && popularityRaw > 0
+      ? Math.max(0, Math.min(100, Math.round(popularityRaw)))
+      : null;
+  // Scored from the same values we are about to write, so the cached number and
+  // what the Hub displays can never drift apart.
+  const hubScore = computeHubScore({
+    popularity,
+    registrationDeadline: toDbDate(e.registrationDeadline),
+    prize: clipDbString(e.prizePool),
+    mode: e.mode ?? null,
+    country: clipDbString(e.country),
+    verificationStatus: 'ADMIN_VERIFIED',
+  });
+  const registrationsRaw = Number(e.registrations);
+  const registrations =
+    Number.isFinite(registrationsRaw) && registrationsRaw > 0 ? Math.round(registrationsRaw) : null;
   const record = {
     title: clipDbString(title) as string,
     category: 'Hackathon',
@@ -134,6 +155,10 @@ export async function publishCandidate(candidateId: number, actorId: number): Pr
     endDate: toDbDate(dates.endDate),
     teamMin: e.teamMin ?? null,
     teamMax: e.teamMax ?? null,
+    country: clipDbString(e.country),
+    popularity,
+    registrations,
+    hubScore,
     sourceUrl: candidate.url,
     sourceType: candidate.sourceType,
     pageHash: candidate.pageHash ?? null,

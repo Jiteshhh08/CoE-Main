@@ -30,6 +30,8 @@ type HubOpportunity = {
   venue: string | null;
   city: string | null;
   state: string | null;
+  country: string | null;
+  registrations: number | null;
   startDate: string | null;
   endDate: string | null;
   teamMin: number | null;
@@ -68,6 +70,9 @@ const daysUntil = (iso: string | null): number | null => {
   return Math.ceil((t - Date.now()) / 86_400_000);
 };
 
+/** Mirrors SORT_KEYS in the hub API route. */
+type HubSort = 'relevant' | 'popular' | 'upcoming' | 'deadline' | 'newest';
+
 export default function HackathonHubPage() {
   const [rows, setRows] = useState<HubOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +88,7 @@ export default function HackathonHubPage() {
   const [regStatus, setRegStatus] = useState('');
   const [domain, setDomain] = useState('');
   const [month, setMonth] = useState('');
-  const [sort, setSort] = useState<'newest' | 'deadline'>('newest');
+  const [sort, setSort] = useState<HubSort>('relevant');
 
   const buildParams = (cursor?: number | null) => {
     const params = new URLSearchParams();
@@ -244,9 +249,12 @@ export default function HackathonHubPage() {
           <div className="min-w-0">
             <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">Order</p>
             <label htmlFor="hub-sort" className="mb-1 block text-xs text-[#747782]">Sort by</label>
-            <select id="hub-sort" value={sort} onChange={(e) => setSort(e.target.value as 'newest' | 'deadline')} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
-              <option value="newest">Newest first</option>
+            <select id="hub-sort" value={sort} onChange={(e) => setSort(e.target.value as HubSort)} className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]">
+              <option value="relevant">Most relevant</option>
+              <option value="popular">Most popular</option>
+              <option value="upcoming">Starting soonest</option>
               <option value="deadline">Deadline soonest</option>
+              <option value="newest">Recently added</option>
             </select>
           </div>
         </div>
@@ -256,7 +264,7 @@ export default function HackathonHubPage() {
             {rows.length} event{rows.length === 1 ? '' : 's'} · status auto-calculated from dates · * deadline not published, derived from start date
           </p>
           <button
-            onClick={() => { setSearch(''); setCity(''); setMode(''); setRegStatus(''); setDomain(''); setMonth(''); setSort('newest'); }}
+            onClick={() => { setSearch(''); setCity(''); setMode(''); setRegStatus(''); setDomain(''); setMonth(''); setSort('relevant'); }}
             className="border border-[#c4c6d3] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#434651] hover:border-[#002155] hover:text-[#002155]"
           >
             Clear all
@@ -282,7 +290,10 @@ export default function HackathonHubPage() {
           {rows.map((opp) => {
             const days = daysUntil(opp.registrationDeadline);
             const team = opp.teamMin || opp.teamMax ? `${opp.teamMin ?? '?'}–${opp.teamMax ?? '?'}` : '—';
-            const location = opp.city ?? (opp.mode === 'ONLINE' ? 'Online' : 'TBD');
+            // Say where it is whenever the source tells us: city, state and
+            // country, so an offline event is not just "TBD".
+            const place = [opp.city, opp.state, opp.country].filter(Boolean).join(', ');
+            const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
             const dateLabel = opp.startDate ? formatDate(opp.startDate) : formatDate(opp.registrationDeadline);
             const domainLabel = opp.themes?.[0] ?? opp.technologies?.[0] ?? opp.category;
             return (
@@ -320,6 +331,15 @@ export default function HackathonHubPage() {
                   <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Domain</dt><dd>{domainLabel}</dd></div>
                   <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Prize</dt><dd>{opp.prize ?? '—'}</dd></div>
                   <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Deadline</dt><dd>{opp.registrationDeadline ? `${formatDate(opp.registrationDeadline)}${days != null && days >= 0 ? ` · ${days}d left` : ''}` : opp.startDate ? `Not published — starts ${formatDate(opp.startDate)}` : 'Not published'}</dd></div>
+                  {opp.registrations ? (
+                    <div className="col-span-2">
+                      <dt className="font-bold uppercase tracking-wider text-[#747782]">Popularity</dt>
+                      <dd>
+                        {opp.registrations.toLocaleString('en-IN')} registered on{' '}
+                        {hubSourceLabel(opp.sourceType)}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
                 <div className="mt-auto flex flex-wrap gap-2 pt-5">
                   {opp.applicationUrl ? (

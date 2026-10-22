@@ -4,7 +4,8 @@ import { clipDbString, cleanEventTitle, normalizeName } from '@/lib/hackathon-hu
 import { ensureHubSources } from './sources';
 import { fetchPublicText } from './fetch-guard';
 import { fetchHtmlWithRender } from './firecrawl';
-import { STRUCTURED_SOURCES, fetchStructuredPage, isStructuredSource } from './structured';
+import { STRUCTURED_SOURCES, fetchStructuredPage, isStructuredSource, type StructuredEvent } from './structured';
+import { isAttendable, isOver, percentileRanks } from './ranking';
 import { addToIndex, indexHas, loadExistingIndex, type ExistingIndex } from './dedupe';
 import { mandatoryMissing, scoreConfidence, wouldAutoVerify } from './confidence';
 
@@ -122,6 +123,10 @@ export type DiscoveryResult = {
   discovered: number;
   /** Same event already known under a different URL/source — skipped, not duplicated. */
   duplicatesSkipped: number;
+  /** Already finished before we saw them. */
+  skippedOver: number;
+  /** Offline and not confirmably in India. */
+  skippedAbroad: number;
   errors: string[];
 };
 
@@ -270,9 +275,24 @@ export async function discoverFromStructured(
   sourceKey: string,
   sharedSeen?: Set<string>,
   sharedIndex?: { titles: ExistingIndex; urls: Set<string> },
-): Promise<{ discovered: number; duplicates: number; error: string | null }> {
+): Promise<{
+  discovered: number;
+  duplicates: number;
+  /** Already finished before we saw them. */
+  skippedOver: number;
+  /** Offline and not confirmably in India. */
+  skippedAbroad: number;
+  error: string | null;
+}> {
   const cfg = STRUCTURED_SOURCES[sourceKey];
-  if (!cfg) return { discovered: 0, duplicates: 0, error: `unknown structured source ${sourceKey}` };
+  if (!cfg)
+    return {
+      discovered: 0,
+      duplicates: 0,
+      skippedOver: 0,
+      skippedAbroad: 0,
+      error: `unknown structured source ${sourceKey}`,
+    };
 
   const seenTitles = sharedSeen ?? (await knownTitleKeys());
   const store = sharedIndex ?? (await buildExistingIndex());
@@ -281,7 +301,13 @@ export async function discoverFromStructured(
   const nativeSeen = new Set<string>();
   let discovered = 0;
   let duplicates = 0;
+  let skippedOver = 0;
+  let skippedAbroad = 0;
 
+  // Fetch the whole page-set before storing anything: popularity is a
+  // percentile *within* the source, so it cannot be computed until every row
+  // is in hand.
+  const fetched: StructuredEvent[] = [];
   for (let page = 1; page <= cfg.maxPages; page++) {
     const result = await fetchStructuredPage(sourceKey, page);
     if (result.error) {
@@ -290,12 +316,34 @@ export async function discoverFromStructured(
     }
     // An empty page means we walked past the end of the collection.
     if (result.events.length === 0) break;
+    fetched.push(...result.events);
+    if (page < cfg.maxPages) await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
+  }
 
-    for (const item of result.events) {
-      const event = item.event;
+  const popularity = percentileRanks(fetched.map((item) => item.popularity));
+  const now = Date.now();
+
+  for (let i = 0; i < fetched.length; i++) {
+    const item = fetched[i];
+    const event = item.event;
       const title = event.eventName;
       if (!title || !item.url) continue;
       if (NOISE.test(title) || LISTING_TITLES.test(title)) continue;
+
+      // Already over. These platforms list years of history — Devfolio's
+      // `type=open` handed back 1,969 already-started events out of 2,000 — and
+      // a student cannot join any of it.
+      if (isOver(event, now)) {
+        skippedOver += 1;
+        continue;
+      }
+
+      // Wrong place. Online is welcome from anywhere; offline has to be in
+      // India (see isAttendable).
+      if (!isAttendable(event)) {
+        skippedAbroad += 1;
+        continue;
+      }
 
       // The same native id twice inside one payload.
       if (nativeSeen.has(item.nativeId)) {
@@ -330,22 +378,19 @@ export async function discoverFromStructured(
           sourceType: cfg.sourceType,
           status: wouldAutoVerify(event, cfg.sourceType) ? 'VERIFIED' : 'NEEDS_REVIEW',
           title: clipDbString(title, 191) ?? item.url.slice(0, 191),
-          extracted: { ...event },
+          extracted: { ...event, popularity: popularity[i], registrations: item.popularity },
           confidence: scoreConfidence(event, cfg.sourceType),
           error: missing.length > 0 ? `missing: ${missing.join(', ')}` : null,
         },
       });
       discovered += 1;
-    }
-
-    if (page < cfg.maxPages) await new Promise((r) => setTimeout(r, POLITENESS_DELAY_MS));
   }
 
   const message = errors.length > 0 ? errors.join('; ').slice(0, 1900) : null;
   await prisma.hubSource
     .update({ where: { key: sourceKey }, data: { lastRunAt: new Date(), lastError: message } })
     .catch(() => undefined);
-  return { discovered, duplicates, error: message };
+  return { discovered, duplicates, skippedOver, skippedAbroad, error: message };
 }
 
 export async function runDiscovery(): Promise<DiscoveryResult> {
@@ -354,6 +399,8 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
   let pagesFetched = 0;
   let discovered = 0;
   let duplicatesSkipped = 0;
+  let skippedOver = 0;
+  let skippedAbroad = 0;
   const seenTitles = await knownTitleKeys();
 
   const sources = await prisma.hubSource.findMany({
@@ -389,6 +436,8 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
     const found = await discoverFromStructured(key, seenTitles, existingIndex);
     discovered += found.discovered;
     duplicatesSkipped += found.duplicates;
+    skippedOver += found.skippedOver;
+    skippedAbroad += found.skippedAbroad;
     if (found.error) errors.push(found.error);
   }
 
@@ -455,7 +504,7 @@ export async function runDiscovery(): Promise<DiscoveryResult> {
     data: { source: 'DISCOVERY', discovered, inserted: discovered, errors: errors.length > 0 ? errors : undefined },
   });
 
-  return { pagesFetched, discovered, duplicatesSkipped, errors };
+  return { pagesFetched, discovered, duplicatesSkipped, skippedOver, skippedAbroad, errors };
 }
 
 function seedUrlFor(key: string): string | null {

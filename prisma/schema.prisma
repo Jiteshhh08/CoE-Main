@@ -988,6 +988,14 @@ model Opportunity {
   teamMax              Int?
   sourceUrl            String?   @db.Text
   sourceType           String    @default("ADMIN")
+  /// Country as published by the source. Drives the offline-India rule.
+  country              String?
+  /// Percentile (0-100) of this event's signup count within its own source.
+  popularity           Int?
+  /// Raw signup count as the source published it, for display ("1,204 registered").
+  registrations        Int?
+  /// Cached relevance 0-100 (./hub/ranking). Recomputed on publish.
+  hubScore             Int?
   verificationStatus   String    @default("UNVERIFIED")
   lastVerifiedAt       DateTime?
   pageHash             String?

@@ -350,6 +350,56 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 
 With it set: JS-shell pages render automatically and `hackerearth` flips from `MANUAL` to `PAGE`. Without it: unchanged behaviour. No third-party account or per-query credits are involved either way.
 
+### Curation: what gets in, and in what order
+
+The platforms do not curate. Unstop's hackathon feed spans years, and Devfolio's
+`type=open` filter is not a date filter — measured on one day, **1,969 of 2,000**
+rows had already started. Left alone, discovery ingests a wall of finished
+events.
+
+Two gates run at discovery, before a candidate is ever stored (`ranking.ts`):
+
+1. **Already over** — no end date (or start date, when there is no end date) earlier than today. An event that ends *today* is kept; on-the-spot registration is real. An event with no dates at all is kept, because unknown is not the same as finished.
+2. **Wrong place** — online events are welcome from anywhere; offline and hybrid ones must be confirmably in India. Offline with no country is **dropped**, not assumed Indian: Devfolio publishes 179 such rows and not one carries a city or state either, so there is nothing to confirm the location with.
+
+Measured on a full run: **2,475 candidates in → 272 stored**, with 2,055 dropped
+as finished and 154 as non-India offline. Zero judgement calls, zero errors.
+
+### Ranking (§37)
+
+`hubScore` (0-100) is cached on the opportunity and computed at publish from the
+values being written, so the stored score and what the Hub shows cannot drift.
+Weights live in `RELEVANCE_WEIGHTS`:
+
+| Signal | Points | Source |
+|---|---|---|
+| Popularity | 45 | Signup count, as a percentile within its own source |
+| Reachable | 25 | Online anywhere; India offline 20; unknown 12; abroad 5 |
+| Urgency | 15 | Closing in ≤7d 15, ≤30d 10, later 5, passed 0 |
+| Prize | 10 | A stated prize pool |
+| Verified | 5 | Checked by hand here |
+
+**Popularity is measured, never invented.** Every source publishes a signup
+count (Unstop `registerCount`, Devfolio `participants_count`, Devpost
+`registrations_count`), but the scales are not comparable — Devfolio's median is
+roughly 11x Unstop's — so counts become a percentile *within their own source*
+before they mix. A missing count scores zero as "unproven", not as "unpopular".
+
+The raw count is kept in `registrations` so the card can say "3,310 registered
+on Unstop" — a "Most popular" sort with no visible number would look arbitrary.
+
+Unknown place deliberately outscores confirmed-abroad: the India-only crawl
+sources (`indiahackathons`, `government`) publish no country field at all.
+
+**Orders offered** (`?sort=`): `relevant` (default), `popular`, `upcoming`,
+`deadline`, `newest`. MySQL sorts NULL as the lowest value, so rows with no
+score or no count land last under DESC rather than floating to the top.
+
+After changing the weights, re-run `npx tsx scripts/hub-rescore.ts` to refresh
+cached scores. It leaves `popularity`/`registrations` alone — only the source
+knows a signup count, so an old row stays unscored on that axis rather than
+being handed a made-up number.
+
 ### Deduplication (§16)
 
 The same hackathon is routinely listed on several platforms, and no shared id exists between them, so identity is derived (`dedupe.ts`):

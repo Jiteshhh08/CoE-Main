@@ -44,6 +44,13 @@ import { ensureHubSources } from '../../src/lib/hub/sources';
 import { fetchPublicText } from '../../src/lib/hub/fetch-guard';
 import { cleanEventTitle } from '../../src/lib/hackathon-hub';
 import { publishCandidate } from '../../src/lib/hub/pipeline';
+import {
+  computeHubScore,
+  isAttendable,
+  isOver,
+  percentileRanks,
+  type RankableOpportunity,
+} from '../../src/lib/hub/ranking';
 
 let passed = 0;
 const check = (name: string, fn: () => void) => {
@@ -251,6 +258,179 @@ check('matcher: unstop accepts event pages only', () => {
   assert.strictEqual(m(new URL('https://unstop.com/competitions')), false);
   assert.strictEqual(m(new URL('https://unstop.com/hackathons/a/b')), false);
 });
+
+/**
+ * Ranking + the two gates that decide what is allowed into the Hub at all.
+ * All pure functions except the last check, which proves the gate held on the
+ * rows discovery actually stored.
+ */
+async function rankingChecks() {
+  // ── percentile: comparable across sources, honest about missing counts ──
+  await checkAsync('ranking: percentile is monotonic and keeps nulls null', async () => {
+    const ranks = percentileRanks([10, null, 100, 0, 55]);
+    assert.strictEqual(ranks[1], null, 'a missing count must stay missing');
+    assert.strictEqual(ranks[3], null, 'zero means "not published", not "least popular"');
+    assert.ok(ranks[0]! < ranks[2]!, '10 must rank below 100');
+    assert.ok(ranks[0]! < ranks[4]! && ranks[4]! < ranks[2]!, '55 must sit between 10 and 100');
+    assert.strictEqual(ranks[2], 100, 'the largest value is the 100th percentile');
+  });
+
+  await checkAsync('ranking: equal counts get equal percentiles', async () => {
+    const ranks = percentileRanks([5, 5, 5]);
+    assert.deepStrictEqual(ranks, [100, 100, 100]);
+    const mixed = percentileRanks([1, 2, 2, 4]);
+    assert.strictEqual(mixed[1], mixed[2], 'ties must not be split arbitrarily');
+  });
+
+  await checkAsync('ranking: all-null input yields all-null output', async () => {
+    assert.deepStrictEqual(percentileRanks([null, null]), [null, null]);
+    assert.deepStrictEqual(percentileRanks([]), []);
+  });
+
+  // ── the "already over" gate ──
+  const ev = (over: Partial<ExtractedEvent>) =>
+    ({ endDate: null, startDate: null, ...over }) as ExtractedEvent;
+
+  await checkAsync('gate: a finished event is dropped, one ending today is kept', async () => {
+    const now = Date.parse('2026-10-22T09:00:00Z');
+    assert.strictEqual(isOver(ev({ endDate: '2026-10-21' }), now), true, 'yesterday is over');
+    assert.strictEqual(isOver(ev({ endDate: '2026-10-22' }), now), false, 'ending today is still joinable');
+    assert.strictEqual(isOver(ev({ endDate: '2026-11-01' }), now), false, 'future is kept');
+  });
+
+  await checkAsync('gate: unknown dates are never assumed over', async () => {
+    const now = Date.parse('2026-10-22T09:00:00Z');
+    assert.strictEqual(isOver(ev({}), now), false, 'no dates at all');
+    assert.strictEqual(isOver(ev({ endDate: 'not-a-date' }), now), false, 'unparseable date');
+    // Falls back to the start date when there is no end date.
+    assert.strictEqual(isOver(ev({ startDate: '2026-10-01' }), now), true, 'started and no end date');
+  });
+
+  // ── the offline-India gate ──
+  await checkAsync('gate: online is welcome from anywhere', async () => {
+    for (const country of ['Germany', 'India', null]) {
+      assert.strictEqual(isAttendable({ mode: 'ONLINE', country }), true, `online from ${country}`);
+    }
+  });
+
+  await checkAsync('gate: offline must be confirmably in India', async () => {
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: 'India' }), true);
+    assert.strictEqual(isAttendable({ mode: 'HYBRID', country: 'india' }), true, 'case-insensitive');
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: 'United States' }), false);
+    assert.strictEqual(isAttendable({ mode: 'OFFLINE', country: null }), false, 'unconfirmed location is dropped');
+    assert.strictEqual(isAttendable({ mode: null, country: null }), false, 'unknown mode, unknown place');
+  });
+
+  // ── relevance scoring ──
+  const rank = (o: Partial<RankableOpportunity>) =>
+    computeHubScore({
+      popularity: null,
+      registrationDeadline: null,
+      prize: null,
+      mode: null,
+      country: null,
+      verificationStatus: 'UNVERIFIED',
+      ...o,
+    });
+
+  await checkAsync('relevance: always inside 0-100', async () => {
+    const extremes = [
+      rank({ popularity: 100, mode: 'ONLINE', prize: '₹1,00,000', verificationStatus: 'ADMIN_VERIFIED' }),
+      rank({ popularity: 0, mode: 'OFFLINE', country: 'United States' }),
+      rank({}),
+    ];
+    for (const score of extremes) {
+      assert.ok(score >= 0 && score <= 100, `out of range: ${score}`);
+      assert.ok(Number.isInteger(score), 'must be an integer for the DB column');
+    }
+    // Not 100: with no registration deadline the urgency term stays low, which
+    // is the intended shape — an event nobody can still sign up for is never
+    // maximally relevant.
+    assert.ok(extremes[0] >= 85, `best case should be high, got `);
+    assert.ok(extremes[0] > extremes[2]!, 'best case must beat the neutral case');
+    assert.ok(extremes[0] > extremes[1]!, 'best case must beat the worst case');
+    // Unknown place outscores confirmed-abroad on purpose: the India-only crawl
+    // sources (indiahackathons, government) publish no country at all, so
+    // "unknown" has to mean "probably fine" rather than "foreign".
+    assert.ok(extremes[2]! > extremes[1]!, 'unknown place should outrank confirmed abroad');
+  });
+
+  await checkAsync('relevance: a popular online event beats an obscure foreign one', async () => {
+    const strong = rank({ popularity: 95, mode: 'ONLINE', prize: '$10,000' });
+    const weak = rank({ popularity: 5, mode: 'OFFLINE', country: 'Germany' });
+    assert.ok(strong > weak, `${strong} should beat ${weak}`);
+  });
+
+  await checkAsync('relevance: closing sooner outranks closing later', async () => {
+    const now = Date.parse('2026-10-22T00:00:00Z');
+    const soon = computeHubScore(
+      { popularity: 50, registrationDeadline: new Date('2026-10-25'), prize: null, mode: 'ONLINE', country: null, verificationStatus: 'UNVERIFIED' },
+      now,
+    );
+    const later = computeHubScore(
+      { popularity: 50, registrationDeadline: new Date('2026-12-25'), prize: null, mode: 'ONLINE', country: null, verificationStatus: 'UNVERIFIED' },
+      now,
+    );
+    assert.ok(soon > later, `closing in 3d (${soon}) should beat closing in 64d (${later})`);
+  });
+
+  await checkAsync('relevance: a closed deadline earns no urgency', async () => {
+    const now = Date.parse('2026-10-22T00:00:00Z');
+    const past = computeHubScore(
+      { popularity: 50, registrationDeadline: new Date('2026-10-01'), prize: null, mode: 'ONLINE', country: null, verificationStatus: 'UNVERIFIED' },
+      now,
+    );
+    const open = computeHubScore(
+      { popularity: 50, registrationDeadline: new Date('2026-10-25'), prize: null, mode: 'ONLINE', country: null, verificationStatus: 'UNVERIFIED' },
+      now,
+    );
+    assert.ok(past < open, 'a passed deadline must not score like an open one');
+  });
+
+  await checkAsync('relevance: an empty prize string is not a prize', async () => {
+    const withPrize = rank({ prize: '₹50,000' });
+    for (const empty of ['', '  ', 'None', 'TBD', '—']) {
+      assert.ok(rank({ prize: empty }) < withPrize, `"${empty}" must not count as a prize`);
+    }
+  });
+
+  // ── the gate, proven on what discovery actually stored ──
+  await checkAsync('gate: nothing stored is finished, nothing offline is foreign', async () => {
+    await prisma.hubCandidate.deleteMany({});
+    const totals = { over: 0, abroad: 0, kept: 0 };
+    for (const key of ['unstop', 'devpost', 'devfolio']) {
+      const res = await discoverFromStructured(key);
+      totals.over += res.skippedOver;
+      totals.abroad += res.skippedAbroad;
+      totals.kept += res.discovered;
+    }
+    const rows = await prisma.hubCandidate.findMany({ select: { extracted: true, url: true } });
+    const offenders = rows.filter((r) => {
+      const e = (r.extracted ?? {}) as ExtractedEvent;
+      return isOver(e) || !isAttendable(e);
+    });
+    assert.strictEqual(offenders.length, 0, `gate let through: ${offenders.map((o) => o.url).slice(0, 3).join(', ')}`);
+    assert.ok(totals.over > 0, 'the gate should have dropped finished events');
+    assert.ok(totals.kept > 0, 'and kept some');
+    console.log(
+      `    gate dropped ${totals.over} finished + ${totals.abroad} non-India offline, kept ${totals.kept}`,
+    );
+    await prisma.hubCandidate.deleteMany({});
+  });
+
+  await checkAsync('gate: stored rows carry a usable popularity percentile', async () => {
+    await prisma.hubCandidate.deleteMany({});
+    await discoverFromStructured('unstop');
+    const rows = await prisma.hubCandidate.findMany({ select: { extracted: true, source: true } });
+    const withRank = rows.filter((r) => {
+      const p = ((r.extracted ?? {}) as ExtractedEvent).popularity;
+      return typeof p === 'number' && p >= 0 && p <= 100;
+    });
+    assert.ok(withRank.length > 0, 'expected at least some unstop rows to carry a percentile');
+    console.log(`    unstop: ${withRank.length}/${rows.length} rows carry a percentile`);
+    await prisma.hubCandidate.deleteMany({});
+  });
+}
 
 async function dedupeChecks() {
   const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
@@ -683,7 +863,8 @@ async function liveChecks() {
   await prisma.hubCandidate.deleteMany({ where: { source: 'devfolio' } });
 }
 
-dedupeChecks()
+rankingChecks()
+  .then(() => dedupeChecks())
   .then(() => liveChecks())
   .then(() => {
     console.log(`\nALL CHECKS PASSED (${passed})`);

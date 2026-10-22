@@ -34,6 +34,8 @@ export type StructuredEvent = {
   url: string;
   /** Platform-native id, used to dedupe within a source without trusting the URL. */
   nativeId: string;
+  /** Raw signup count as published, or null when the source omits it. */
+  popularity: number | null;
   event: ExtractedEvent;
 };
 
@@ -255,12 +257,14 @@ export function parseUnstop(payload: unknown): StructuredPage {
     events.push({
       url,
       nativeId: str(row.short_id, 40) ?? str(row.id, 40) ?? url,
+      popularity: int(row.registerCount),
       event: {
         eventName: title,
         organiser: tidy(str(organisation?.name, 200), 200),
         mode: unstopMode(str(row.region, 20)),
         city: tidy(str(address.city, 80), 80),
         state: tidy(str(address.state, 80), 80),
+        country: unstopCountry(address.country),
         venue: tidy(str(address.address, 200), 200),
         startDate: localDate(row.start_date, 'Asia/Kolkata'),
         endDate: localDate(row.end_date, 'Asia/Kolkata'),
@@ -278,6 +282,13 @@ export function parseUnstop(payload: unknown): StructuredPage {
 }
 
 // ── Devfolio ─────────────────────────────────────────────────────────────────
+
+/** Unstop sends `country` as a nested object on some rows, a bare string on others. */
+function unstopCountry(value: unknown): string | null {
+  const direct = tidy(str(value, 60), 60);
+  if (direct) return direct;
+  return tidy(str(asRecord(value)?.country_name, 60), 60);
+}
 
 function devfolioPrize(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
@@ -347,12 +358,14 @@ export function parseDevfolio(payload: unknown): StructuredPage {
     events.push({
       url,
       nativeId: str(row.uuid, 60) ?? slug ?? url,
+      popularity: int(row.participants_count),
       event: {
         eventName: title,
         organiser,
         mode: isOnline ? 'ONLINE' : row.is_online === false ? 'OFFLINE' : null,
         city: tidy(str(row.city, 80), 80),
         state: tidy(str(row.state, 80), 80),
+        country: tidy(str(row.country, 60), 60),
         venue: tidy(str(row.location, 200), 200),
         startDate: localDate(row.starts_at, timezone),
         endDate: endsAt,
@@ -390,6 +403,7 @@ export function parseDevpost(payload: unknown, now: Date = new Date()): Structur
     events.push({
       url,
       nativeId: str(row.id, 40) ?? url,
+      popularity: int(row.registrations_count),
       event: {
         eventName: title,
         organiser: tidy(str(row.organization_name, 200), 200),

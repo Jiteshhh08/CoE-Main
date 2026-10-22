@@ -30,6 +30,12 @@ export type ExtractedEvent = {
   prizePool: string | null;
   domains: string[];
   eligibility: string | null;
+  /** ISO-ish country name when the source publishes one (drives reachability). */
+  country?: string | null;
+  /** Platform signup count, raw. Normalised to a percentile before ranking. */
+  popularity?: number | null;
+  /** The same count before normalisation, kept so the UI can show it. */
+  registrations?: number | null;
 };
 
 const MONTH_INDEX: Record<string, number> = {
