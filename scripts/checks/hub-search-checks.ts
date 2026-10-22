@@ -493,6 +493,24 @@ async function liveChecks() {
     );
   });
 
+  await checkAsync('registration: page-as-registration can only ever hit event pages', async () => {
+    // The AI-fill rule sets registrationUrl = the page URL for
+    // registrationOnPage sources. Prove that for every candidate discovery can
+    // actually produce from those sources, isIndividualEventPage() is true — so
+    // the rule can never fire on a listing page.
+    await prisma.hubCandidate.deleteMany({});
+    await runDiscovery();
+    const rows = await prisma.hubCandidate.findMany({
+      where: { source: { in: ['unstop', 'devfolio', 'hacker2kill', 'hack2skill'] } },
+      select: { url: true, source: true },
+    });
+    assert.ok(rows.length > 0, 'expected candidates from a registrationOnPage source');
+    const bad = rows.filter((r: { url: string; source: string }) => !isIndividualEventPage(r.url, r.source));
+    console.log(`    ${rows.length} candidates from page-registration sources, ${bad.length} are not event pages`);
+    assert.strictEqual(bad.length, 0, `listing URLs must never reach the rule: ${bad.map((b: any) => b.url).join(', ')}`);
+    await prisma.hubCandidate.deleteMany({});
+  });
+
   await checkAsync('discovery: crawls events even when the search backend is dead', async () => {
     // The search stage is best-effort (engines CAPTCHA this IP regularly). The
     // deterministic crawl+render path is what discovery must actually rely on.
