@@ -297,6 +297,22 @@ async function rankingChecks() {
     console.log(`    ${seen} organisers seen across three live sources, 0 placeholders`);
   });
 
+  await checkAsync('adapter: offline Unstop events keep their country', async () => {
+    const { events } = await fetchStructuredPage('unstop', 1);
+    const inPerson = events.map((e) => e.event).filter((e) => e.mode && e.mode !== 'ONLINE');
+    assert.ok(inPerson.length > 0, 'expected offline/hybrid rows on page 1 of Unstop');
+    const lost = inPerson.filter((e) => !e.country);
+    assert.strictEqual(
+      lost.length,
+      0,
+      `${lost.length} offline row(s) lost their country, so the India gate would drop them: ` +
+        lost.slice(0, 3).map((e) => `"${e.eventName}"`).join(', '),
+    );
+    const attendable = inPerson.filter((e) => isAttendable(e));
+    assert.ok(attendable.length > 0, 'offline Unstop rows must survive the India gate');
+    console.log(`    ${attendable.length}/${inPerson.length} offline/hybrid rows are attendable in person`);
+  });
+
   // ── percentile: comparable across sources, honest about missing counts ──
   await checkAsync('ranking: percentile is monotonic and keeps nulls null', async () => {
     const ranks = percentileRanks([10, null, 100, 0, 55]);

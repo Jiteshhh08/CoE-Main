@@ -283,11 +283,23 @@ export function parseUnstop(payload: unknown): StructuredPage {
 
 // ── Devfolio ─────────────────────────────────────────────────────────────────
 
-/** Unstop sends `country` as a nested object on some rows, a bare string on others. */
+/**
+ * Unstop sends `country` as a bare string on some rows and as
+ * `{ id, name, alpha_2 }` on others — the object form is what every offline and
+ * hybrid event carries. Reading only `country_name` there returned null, and a
+ * null country means the India gate drops the row: it silently deleted every
+ * Unstop hackathon a student could physically attend.
+ */
 function unstopCountry(value: unknown): string | null {
   const direct = tidy(str(value, 60), 60);
   if (direct) return direct;
-  return tidy(str(asRecord(value)?.country_name, 60), 60);
+  const record = asRecord(value);
+  if (!record) return null;
+  return (
+    tidy(str(record.name, 60), 60) ??
+    tidy(str(record.country_name, 60), 60) ??
+    tidy(str(record.alpha_2, 2), 2)
+  );
 }
 
 function devfolioPrize(value: unknown): string | null {
