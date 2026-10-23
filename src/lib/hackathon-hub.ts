@@ -64,11 +64,21 @@ export function hubSourceLabel(sourceType: string | null | undefined): string {
  * its own deadline day, so anything closing *today* read CLOSED all day and an
  * event ending today read COMPLETED from the small hours. Values that carry a
  * real time keep it.
+ *
+ * Midnight has to be checked in UTC *and* local: ingestion writes UTC midnight,
+ * while dates built in-app use local midnight, and the server is not on UTC (IST
+ * makes a UTC midnight read as 05:30). Testing only one convention passes in the
+ * environment that wrote the row and fails in the other.
  */
+function isMidnight(d: Date): boolean {
+  return (
+    (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) ||
+    (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0)
+  );
+}
+
 function endOfDayIfDateOnly(d: Date): number {
-  const dateOnly =
-    d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
-  return dateOnly ? d.getTime() + 86_400_000 - 1 : d.getTime();
+  return isMidnight(d) ? d.getTime() + 86_400_000 - 1 : d.getTime();
 }
 
 export function getRegistrationStatus(deadline: Date | string | null | undefined, now = new Date()): HubRegistrationStatus {
