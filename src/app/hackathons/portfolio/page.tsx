@@ -160,7 +160,7 @@ export default function PortfolioPage() {
             {data.awards.length === 0 ? (
               renderEmpty('Win or get selected in a hackathon and your awards will show up here.')
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {data.awards.map((award) => (
                   <div key={award.eventId} className="flex items-center justify-between border border-outline-variant bg-white p-5">
                     <div>
@@ -182,7 +182,7 @@ export default function PortfolioPage() {
             {data.certificates.length === 0 ? (
               renderEmpty('Certificates for completed events will be listed here once issued.')
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {data.certificates.map((certificate) => (
                   <div key={certificate.eventId} className="flex items-center justify-between border border-outline-variant bg-white p-5">
                     <p className="font-headline text-lg font-bold leading-snug text-primary">{certificate.eventTitle}</p>

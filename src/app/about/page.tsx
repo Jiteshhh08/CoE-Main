@@ -12,7 +12,7 @@ export default function AboutPage() {
               07 — Our Story
             </span>
           </div>
-          <div className="col-span-12 lg:col-span-11 grid md:grid-cols-2 gap-8 md:gap-16 items-start">
+          <div className="col-span-12 lg:col-span-11 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16 items-start">
             <div className="border-l-4 border-[#002155] pl-4 md:pl-8">
               <h1 className="text-4xl md:text-5xl font-headline font-bold text-[#002155] mb-4 md:mb-8 leading-tight tracking-tight">
                 The Genesis of Excellence in Technical Education

@@ -235,7 +235,7 @@ export default function AdminHostingRequestsClient({ initialData }: { initialDat
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.78fr_1.22fr]">
         <div className="space-y-6">
           <article className="border border-[#c4c6d3] bg-white p-5 md:p-6">
-            <div className="grid gap-3 md:grid-cols-[1fr_220px_auto]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_auto]">
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -308,7 +308,7 @@ export default function AdminHostingRequestsClient({ initialData }: { initialDat
                 <HostingRequestStatusBadge status={selectedRequest.status} />
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2 text-sm text-[#434651]">
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 text-sm text-[#434651]">
                 <p><span className="font-semibold text-[#002155]">Student:</span> {selectedRequest.student.name}</p>
                 <p><span className="font-semibold text-[#002155]">UID:</span> {selectedRequest.student.uid || 'Not available'}</p>
                 <p><span className="font-semibold text-[#002155]">Email:</span> {selectedRequest.student.email}</p>
@@ -335,7 +335,7 @@ export default function AdminHostingRequestsClient({ initialData }: { initialDat
               </div>
 
               <form onSubmit={handleReviewSubmit} className="grid gap-4">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium text-[#002155]">Decision</span>
                     <select
@@ -372,7 +372,7 @@ export default function AdminHostingRequestsClient({ initialData }: { initialDat
                   />
                 </label>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium text-[#002155]">Deployment Status</span>
                     <input
@@ -392,7 +392,7 @@ export default function AdminHostingRequestsClient({ initialData }: { initialDat
                   </label>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium text-[#002155]">Hosting Expiry Date</span>
                     <input

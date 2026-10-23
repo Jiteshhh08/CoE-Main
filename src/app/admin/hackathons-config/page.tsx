@@ -306,7 +306,7 @@ export default function HackathonsConfigPage() {
             <p className="mt-1 text-xs text-[#747782]">
               Scoring templates available for event judging. Managed in code; listed here for reference.
             </p>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
               {config?.rubrics.templates.map((template) => (
                 <div key={template.key} className="border border-[#e3e2df] bg-[#f5f4f0] p-4">
                   <p className="text-sm font-bold text-[#002155]">

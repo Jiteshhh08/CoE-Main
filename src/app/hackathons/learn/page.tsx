@@ -111,7 +111,7 @@ export default function LearningHubPage() {
           {groups.map(([category, items]) => (
             <section key={category}>
               <h2 className="mb-4 font-headline text-2xl font-bold text-[#002155]">{category}</h2>
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {items.map((resource) => {
                   const meta = TYPE_META[resource.type] ?? TYPE_META.LINK;
                   return (

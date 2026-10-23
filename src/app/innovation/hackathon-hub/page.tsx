@@ -373,7 +373,7 @@ export default function HackathonHubPage() {
       {error ? <div className="mb-6 border border-[#991b1b] bg-[#fdf2f2] p-4 text-sm text-[#991b1b]">{error}</div> : null}
 
       {loading ? (
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-busy="true">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3" aria-busy="true">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-[300px] animate-pulse border border-[#c4c6d3] bg-white" />
           ))}
@@ -384,7 +384,7 @@ export default function HackathonHubPage() {
           <p className="mt-1 text-sm text-[#747782]">Try clearing filters — approved faculty submissions appear here.</p>
         </div>
       ) : (
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((opp) => {
             const days = daysUntil(opp.registrationDeadline);
             // A deadline stored as a bare date closes at the end of that day, so

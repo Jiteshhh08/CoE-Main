@@ -254,7 +254,7 @@ export default function ProjectHostingClient({ initialData }: { initialData: Das
                 </span>
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <p className="text-[11px] uppercase tracking-widest text-[#747782]">Name</p>
                 <p className="mt-1 text-sm font-semibold text-[#002155]">{data.student.name}</p>
@@ -293,7 +293,7 @@ export default function ProjectHostingClient({ initialData }: { initialData: Das
             {errorMessage ? <p className="mb-4 border border-[#fca5a5] bg-[#fee2e2] p-3 text-sm text-[#991b1b]">{errorMessage}</p> : null}
 
             <form onSubmit={handleSubmit} className="grid gap-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-[#002155]">Project Name</span>
                   <input
@@ -326,7 +326,7 @@ export default function ProjectHostingClient({ initialData }: { initialData: Das
                 />
               </label>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-[#002155]">GitHub Repository URL</span>
                   <input
@@ -360,7 +360,7 @@ export default function ProjectHostingClient({ initialData }: { initialData: Das
                 />
               </label>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-[#002155]">Database Requirement</span>
                   <select
@@ -394,7 +394,7 @@ export default function ProjectHostingClient({ initialData }: { initialData: Das
                 </label>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-[#002155]">Faculty Mentor Email</span>
                   <input

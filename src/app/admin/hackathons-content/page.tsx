@@ -656,7 +656,7 @@ export default function HackathonsContentPage() {
             Resources shown on the Learning Hub, grouped by category. Uploads with a file key are linked via the platform.
           </p>
 
-          <div className="mt-5 grid gap-4 border border-[#e3e2df] bg-[#f5f4f0] p-4 md:grid-cols-2 lg:grid-cols-6">
+          <div className="mt-5 grid grid-cols-1 gap-4 border border-[#e3e2df] bg-[#f5f4f0] p-4 md:grid-cols-2 lg:grid-cols-6">
             <div className="lg:col-span-2">
               <label htmlFor="lr-title" className="mb-2 block text-sm font-medium text-[#002155]">
                 Title *

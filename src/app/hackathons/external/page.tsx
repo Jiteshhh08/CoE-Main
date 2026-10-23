@@ -325,7 +325,7 @@ export default function ExternalOpportunitiesPage() {
           <p className="mt-1 text-xs text-[#747782]">
             Admins can submit opportunities for review — submissions go live once approved.
           </p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label htmlFor="opp-title" className="mb-2 block text-sm font-medium text-[#002155]">
                 Title *
@@ -590,7 +590,7 @@ export default function ExternalOpportunitiesPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {visible.map((opportunity) => {
             const days = daysUntil(opportunity.registrationDeadline);
             const saved = opportunity.myInterest?.status === 'SAVED';
