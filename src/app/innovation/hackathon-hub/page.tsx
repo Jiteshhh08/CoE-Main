@@ -93,10 +93,17 @@ const MODE_LABEL: Record<string, string> = {
 /**
  * When the hackathon actually runs, and how far through it we are — the card's
  * primary date. Registration deadlines are a separate, action-facing fact.
+ *
+ * The label comes from the API's `eventStatus`, not from comparing dates here.
+ * Deriving it twice meant the card said "ended" on an event whose chip said
+ * "closes today": a date-only end date is an instant at midnight, so the local
+ * comparison expired it while the API (which knows a bare date is a whole day)
+ * still called it ongoing. One rule, one owner.
  */
 const eventTimeline = (opp: {
   startDate: string | null;
   endDate: string | null;
+  eventStatus: string;
 }): { from: Date; to: Date | null; pct: number; label: string } | null => {
   if (!opp.startDate) return null;
   const from = new Date(opp.startDate);
@@ -108,15 +115,16 @@ const eventTimeline = (opp: {
   const now = Date.now();
   const start = from.getTime();
   const end = to?.getTime() ?? null;
+  const totalDays = end ? Math.max(1, Math.round((end - start) / DAY) + 1) : 1;
 
   const pct = end && end > start ? Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100)) : now >= start ? 100 : 0;
   const label =
-    now < start
-      ? `starts in ${Math.max(1, Math.ceil((start - now) / DAY))}d`
-      : end && now > end
-        ? 'ended'
+    opp.eventStatus === 'COMPLETED'
+      ? 'ended'
+      : opp.eventStatus === 'UPCOMING'
+        ? `starts in ${Math.max(1, Math.ceil((start - now) / DAY))}d`
         : end
-          ? `day ${Math.min(Math.floor((now - start) / DAY) + 1, Math.round((end - start) / DAY) + 1)} of ${Math.round((end - start) / DAY) + 1}`
+          ? `day ${Math.min(Math.floor((now - start) / DAY) + 1, totalDays)} of ${totalDays}`
           : 'running';
   return { from, to, pct, label };
 };
