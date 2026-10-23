@@ -142,12 +142,56 @@ export async function GET(req: NextRequest) {
 
     const range = month ? monthRange(month) : null;
 
+    // Sorts that mean "soonest" must not lead with things that already happened.
+    // MySQL also sorts NULLs first under ASC, which sprinkled undated rows through
+    // the top of every ascending list, so each date sort now constrains the field
+    // it orders by. `today` (not `now`) so a deadline dated today still counts.
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+
+    // A hub listing should not surface events that are over and unjoinable.
+    // Excluded only when the registration closed AND the event ended; closed
+    // registration on a still-running event is a legitimate card.
+    //
+    // Every comparison is null-guarded on purpose. A bare `lt` on a null column
+    // yields NULL, and `NOT (TRUE AND NULL)` is NULL, so unguarded rows with a
+    // missing date were silently dropped from the whole listing.
+    const deadEvent: Prisma.OpportunityWhereInput = {
+      NOT: {
+        AND: [
+          { registrationDeadline: { not: null, lt: today } },
+          {
+            OR: [
+              { endDate: { not: null, lt: today } },
+              { AND: [{ endDate: null }, { startDate: { not: null, lt: today } }] },
+            ],
+          },
+        ],
+      },
+    };
+
     const where: Prisma.OpportunityWhereInput = {
       status: 'APPROVED',
       showInHub: true,
       ...(city ? { city: { equals: city } } : {}),
       ...(mode ? { mode } : {}),
-      ...(range ? { startDate: { gte: range.start, lt: range.end } } : {}),
+      ...(range
+        ? {
+            // "When" means when the event runs, not when it starts: an event
+            // already under way still belongs to this month.
+            AND: [
+              { startDate: { lt: range.end } },
+              {
+                OR: [
+                  { endDate: { gte: range.start } },
+                  { endDate: null, registrationDeadline: { gte: range.start } },
+                  { endDate: null, registrationDeadline: null, startDate: { gte: range.start } },
+                ],
+              },
+            ],
+          }
+        : {}),
+      ...deadEvent,
       ...(search
         ? {
             OR: [
@@ -158,6 +202,14 @@ export async function GET(req: NextRequest) {
           }
         : {}),
     };
+
+    // Each sort constrains the field it sorts on, so "soonest" cannot lead with
+    // a null or a past date.
+    if (sort === 'deadline') {
+      where.registrationDeadline = { gte: today };
+    } else if (sort === 'upcoming') {
+      where.startDate = { gte: today };
+    }
 
     // MySQL sorts NULLs as the lowest value, so a missing score or count lands
     // last under DESC — unscored rows never outrank scored ones.
@@ -284,8 +336,27 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // The city dropdown has to offer every city in the hub, not just the ones
+    // on the page the client happens to hold — otherwise page 1 decides which
+    // cities exist. Only computed when asked for.
+    const facets =
+      searchParams.get('facets') === '1'
+        ? {
+            cities: (
+              await prisma.opportunity.groupBy({
+                by: ['city'],
+                where: { status: 'APPROVED', showInHub: true, city: { not: null }, ...deadEvent },
+                _count: { _all: true },
+                orderBy: { _count: { city: 'desc' } },
+              })
+            )
+              .filter((r) => (r.city ?? '').trim().length > 0)
+              .map((r) => ({ city: r.city as string, count: r._count._all })),
+          }
+        : undefined;
+
     return successRes(
-      { items: payload, nextCursor, hasMore },
+      { items: payload, nextCursor, hasMore, ...(facets ? { facets } : {}) },
       'Hackathon hub events retrieved successfully.',
     );
   } catch (err) {

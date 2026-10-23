@@ -10,6 +10,7 @@ type HubPage = {
   items: HubOpportunity[];
   nextCursor: number | null;
   hasMore: boolean;
+  facets?: { cities: { city: string; count: number }[] };
 };
 
 type HubOpportunity = {
@@ -89,6 +90,37 @@ const MODE_LABEL: Record<string, string> = {
   HYBRID: 'Hybrid',
 };
 
+/**
+ * When the hackathon actually runs, and how far through it we are — the card's
+ * primary date. Registration deadlines are a separate, action-facing fact.
+ */
+const eventTimeline = (opp: {
+  startDate: string | null;
+  endDate: string | null;
+}): { from: Date; to: Date | null; pct: number; label: string } | null => {
+  if (!opp.startDate) return null;
+  const from = new Date(opp.startDate);
+  if (Number.isNaN(from.getTime())) return null;
+  const to = opp.endDate ? new Date(opp.endDate) : null;
+  if (to && Number.isNaN(to.getTime())) return null;
+
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const start = from.getTime();
+  const end = to?.getTime() ?? null;
+
+  const pct = end && end > start ? Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100)) : now >= start ? 100 : 0;
+  const label =
+    now < start
+      ? `starts in ${Math.max(1, Math.ceil((start - now) / DAY))}d`
+      : end && now > end
+        ? 'ended'
+        : end
+          ? `day ${Math.min(Math.floor((now - start) / DAY) + 1, Math.round((end - start) / DAY) + 1)} of ${Math.round((end - start) / DAY) + 1}`
+          : 'running';
+  return { from, to, pct, label };
+};
+
 /** Mirrors SORT_KEYS in the hub API route. */
 type HubSort = 'relevant' | 'popular' | 'upcoming' | 'deadline' | 'newest';
 
@@ -166,11 +198,32 @@ export default function HackathonHubPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, city, mode, regStatus, domain, month, sort]);
 
+  const [cityFacets, setCityFacets] = useState<{ city: string; count: number }[]>([]);
+
+  // The dropdown must offer every city in the hub. Deriving it from `rows` only
+  // ever showed the cities on the page the browser happened to hold.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch('/api/hackathon-hub?facets=1&limit=1', { credentials: 'include' });
+        const json = (await res.json()) as ApiResponse<HubPage>;
+        if (alive && json.success && json.data?.facets) setCityFacets(json.data.facets.cities);
+      } catch {
+        // Falls back to the cities on the loaded page below.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const cities = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of rows) if (r.city) set.add(r.city);
-    return ['', ...Array.from(set).sort()];
-  }, [rows]);
+    const source = cityFacets.length
+      ? cityFacets.map((c) => c.city)
+      : (rows.map((r) => r.city).filter(Boolean) as string[]);
+    return ['', ...Array.from(new Set(source)).sort()];
+  }, [cityFacets, rows]);
 
   // The API's month filter takes YYYY-MM; a native month input renders "---------- ----" empty.
   const monthOptions = useMemo(() => {
@@ -330,6 +383,7 @@ export default function HackathonHubPage() {
             const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
             const startIso = opp.startDate ?? opp.registrationDeadline;
             const badge = dateBadge(startIso);
+            const span = eventTimeline(opp);
             const domainLabel = opp.themes?.[0] ?? opp.technologies?.[0] ?? opp.category;
             const modeLabel = opp.mode ? MODE_LABEL[opp.mode] ?? opp.mode : null;
             const teamLabel = opp.teamMin || opp.teamMax ? `${opp.teamMin ?? '1'}–${opp.teamMax ?? '–'} people` : null;
@@ -351,8 +405,14 @@ export default function HackathonHubPage() {
                 <div className="flex gap-4 border-b border-[#e8e7e3] p-5">
                   {/* the anchor: when. ink mass, not a shadow — the house style is flat */}
                   <div className="flex h-[56px] w-[54px] shrink-0 flex-col items-center justify-center bg-[#002155] text-white">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/70">{badge.mon}</span>
-                    <span className="mt-0.5 text-[21px] font-bold leading-none tabular-nums">{badge.day}</span>
+                    {badge.mon === 'TBD' ? (
+                      <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-white/80">TBD</span>
+                    ) : (
+                      <>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/70">{badge.mon}</span>
+                        <span className="mt-0.5 text-[21px] font-bold leading-none tabular-nums">{badge.day}</span>
+                      </>
+                    )}
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -389,6 +449,24 @@ export default function HackathonHubPage() {
                   ) : null}
                 </div>
 
+                {/* When the hackathon runs. Registration closing is a separate line below. */}
+                {span ? (
+                  <div className="mt-3 px-5">
+                    <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                      <span className="font-semibold text-[#434651]">
+                        {formatDate(opp.startDate)}
+                        {span.to ? ` → ${formatDate(opp.endDate)}` : ''}
+                      </span>
+                      <span className={span.label === 'ended' ? 'text-[#991b1b]' : 'text-[#747782]'}>{span.label}</span>
+                    </div>
+                    {span.to && span.pct > 0 ? (
+                      <div className="mt-1 h-[3px] w-full bg-[#e8e7e3]" aria-hidden="true">
+                        <div className="h-[3px] bg-[#002155]" style={{ width: `${span.pct}%` }} />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 pb-4">
                   <span
                     title={opp.regStatusSource === 'startDate' ? 'No deadline published by the source — this is the start date' : undefined}
@@ -397,7 +475,7 @@ export default function HackathonHubPage() {
                     {opp.registrationDeadline
                       ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${opp.regStatus !== 'CLOSED' && days != null && days >= 0 ? ` · ${days} day${days === 1 ? '' : 's'} left` : ''}`
                       : opp.startDate
-                        ? `Closes with start · ${formatDate(opp.startDate)}`
+                        ? 'Closes when it starts'
                         : 'Deadline not published'}
                   </span>
                 </div>
