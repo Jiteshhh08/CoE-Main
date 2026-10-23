@@ -49,13 +49,6 @@ type HubOpportunity = {
   myInterest: { status: 'SAVED' | 'INTERESTED' } | null;
 };
 
-const REG_STYLES: Record<HubOpportunity['regStatus'], string> = {
-  OPEN: 'border-[#0b6b2e] bg-[#f0faf2] text-[#0b6b2e]',
-  CLOSING_SOON: 'border-[#8a5a00] bg-[#fdf6ec] text-[#8a5a00]',
-  CLOSED: 'border-[#991b1b] bg-[#fdf2f2] text-[#991b1b]',
-  UNKNOWN: 'border-[#c4c6d3] bg-[#efeeea] text-[#434651]',
-};
-
 const formatDate = (iso: string | null): string => {
   if (!iso) return 'TBD';
   const d = new Date(iso);
@@ -68,6 +61,32 @@ const daysUntil = (iso: string | null): number | null => {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return null;
   return Math.ceil((t - Date.now()) / 86_400_000);
+};
+
+/** Day + short month for the card's date block, which is what people scan for first. */
+const dateBadge = (iso: string | null): { day: string; mon: string } => {
+  if (!iso) return { day: '—', mon: 'TBD' };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { day: '—', mon: 'TBD' };
+  return {
+    day: String(d.getDate()),
+    mon: d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase(),
+  };
+};
+
+/** A deadline is only worth shouting about when it is close or already gone. */
+const urgencyChip = (status: HubOpportunity['regStatus']): string => {
+  if (status === 'CLOSING_SOON') return 'border-[#f0c98a] bg-[#fdf6ec] text-[#8a5a00]';
+  if (status === 'CLOSED') return 'border-[#e8c4c4] bg-[#fdf2f2] text-[#991b1b]';
+  if (status === 'OPEN') return 'border-[#dfe2e8] bg-[#f6f7f9] text-[#434651]';
+  return 'border-[#dfe2e8] bg-white text-[#747782]';
+};
+
+/** "OFFLINE" tells a student nothing; "In person" does. */
+const MODE_LABEL: Record<string, string> = {
+  ONLINE: 'Online',
+  OFFLINE: 'In person',
+  HYBRID: 'Hybrid',
 };
 
 /** Mirrors SORT_KEYS in the hub API route. */
@@ -153,6 +172,20 @@ export default function HackathonHubPage() {
     return ['', ...Array.from(set).sort()];
   }, [rows]);
 
+  // The API's month filter takes YYYY-MM; a native month input renders "---------- ----" empty.
+  const monthOptions = useMemo(() => {
+    const out: { value: string; label: string }[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      out.push({
+        value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        label: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+      });
+    }
+    return out;
+  }, []);
+
   const setInterest = async (opp: HubOpportunity, status: 'SAVED' | 'INTERESTED') => {
     try {
       const res = await fetch(`/api/opportunities/${opp.id}/interest`, {
@@ -227,13 +260,17 @@ export default function HackathonHubPage() {
           <div className="min-w-0">
             <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">When</p>
             <label htmlFor="hub-month" className="mb-1 block text-xs text-[#747782]">Month</label>
-            <input
+            <select
               id="hub-month"
-              type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
               className="w-full min-w-0 border border-[#c4c6d3] bg-white px-3 py-2 text-sm text-[#434651] outline-none focus:border-[#002155]"
-            />
+            >
+              <option value="">Any month</option>
+              {monthOptions.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
           </div>
           <div className="min-w-0">
             <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8c4f00]">What</p>
@@ -275,9 +312,9 @@ export default function HackathonHubPage() {
       {error ? <div className="mb-6 border border-[#991b1b] bg-[#fdf2f2] p-4 text-sm text-[#991b1b]">{error}</div> : null}
 
       {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-busy="true">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-56 animate-pulse border border-[#c4c6d3] bg-white" />
+            <div key={i} className="h-[300px] animate-pulse border border-[#c4c6d3] bg-white" />
           ))}
         </div>
       ) : rows.length === 0 ? (
@@ -289,72 +326,115 @@ export default function HackathonHubPage() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((opp) => {
             const days = daysUntil(opp.registrationDeadline);
-            const team = opp.teamMin || opp.teamMax ? `${opp.teamMin ?? '?'}–${opp.teamMax ?? '?'}` : '—';
-            // Say where it is whenever the source tells us: city, state and
-            // country, so an offline event is not just "TBD".
             const place = [opp.city, opp.state, opp.country].filter(Boolean).join(', ');
             const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
-            const dateLabel = opp.startDate ? formatDate(opp.startDate) : formatDate(opp.registrationDeadline);
+            const startIso = opp.startDate ?? opp.registrationDeadline;
+            const badge = dateBadge(startIso);
             const domainLabel = opp.themes?.[0] ?? opp.technologies?.[0] ?? opp.category;
+            const modeLabel = opp.mode ? MODE_LABEL[opp.mode] ?? opp.mode : null;
+            const teamLabel = opp.teamMin || opp.teamMax ? `${opp.teamMin ?? '1'}–${opp.teamMax ?? '–'} people` : null;
+            // One flowing line of values, no label column: the format tells you what each one is.
+            // Values are deduped across fields, because the API's distanceLabel is "Online" for
+            // online events and would otherwise print the mode twice.
+            const metaParts = [
+              location,
+              modeLabel,
+              teamLabel,
+              opp.registrations ? `${opp.registrations.toLocaleString('en-IN')} registered` : null,
+              opp.distanceLabel,
+            ].filter((v, i, arr): v is string => !!v && arr.indexOf(v) === i);
             return (
-              <article key={opp.id} className="flex flex-col border border-[#c4c6d3] bg-white p-5">
-                <div className="flex flex-wrap gap-2">
-                  <span
-                    title={opp.regStatusSource === 'startDate' ? 'Exact deadline not published — derived from start date' : undefined}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${REG_STYLES[opp.regStatus]}`}
-                  >
-                    {opp.regStatus.replace('_', ' ')}{opp.regStatusSource === 'startDate' ? ' *' : ''}
-                  </span>
-                  <span className="rounded-full border border-[#c4c6d3] bg-[#efeeea] px-3 py-1 text-[11px] font-semibold text-[#434651]">
-                    {opp.eventStatus}
-                  </span>
-                  {opp.verificationStatus && opp.verificationStatus !== 'UNVERIFIED' ? (
-                    <span className="rounded-full bg-[#002155] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
-                      {opp.verificationStatus.replace('_', ' ')}
-                    </span>
-                  ) : null}
-                  {opp.sourceType ? (
-                    <span
-                      title={opp.sourceUrl ? `Original listing: ${opp.sourceUrl}` : undefined}
-                      className="rounded-full border border-[#c4c6d3] bg-white px-3 py-1 text-[11px] font-semibold text-[#434651]"
-                    >
-                      via {hubSourceLabel(opp.sourceType)}
-                    </span>
+              <article
+                key={opp.id}
+                className="group flex flex-col border border-[#c4c6d3] bg-white transition-colors duration-150 hover:border-[#002155]"
+              >
+                <div className="flex gap-4 border-b border-[#e8e7e3] p-5">
+                  {/* the anchor: when. ink mass, not a shadow — the house style is flat */}
+                  <div className="flex h-[56px] w-[54px] shrink-0 flex-col items-center justify-center bg-[#002155] text-white">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/70">{badge.mon}</span>
+                    <span className="mt-0.5 text-[21px] font-bold leading-none tabular-nums">{badge.day}</span>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em]">
+                      <span className="truncate text-[#8c4f00]">{domainLabel}</span>
+                      {opp.sourceType ? (
+                        <>
+                          <span aria-hidden="true" className="text-[#c4c6d3]">·</span>
+                          <span
+                            className="truncate text-[#747782]"
+                            title={opp.sourceUrl ? `Original listing: ${opp.sourceUrl}` : undefined}
+                          >
+                            {hubSourceLabel(opp.sourceType)}
+                          </span>
+                        </>
+                      ) : null}
+                      {opp.verificationStatus && opp.verificationStatus !== 'UNVERIFIED' ? (
+                        <span className="ml-auto shrink-0 text-[#0b6b2e]" title="Cross-checked against the original listing">
+                          ✓
+                        </span>
+                      ) : null}
+                    </div>
+                    <h3 className="mt-1.5 line-clamp-2 font-headline text-[18px] font-bold leading-[1.28] text-[#002155]">{opp.title}</h3>
+                    <p className="mt-1 truncate text-[12px] text-[#747782]">{opp.organizer}</p>
+                  </div>
+                </div>
+                <div className="px-5 pt-4">
+                  <p className="text-[13px] leading-relaxed text-[#434651]">{metaParts.join(' · ')}</p>
+                  {opp.prize ? (
+                    <p className="mt-2 flex items-baseline gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#747782]">Prize</span>
+                      <span className="text-[15px] font-bold text-[#002155]">{opp.prize}</span>
+                    </p>
                   ) : null}
                 </div>
-                <h3 className="mt-3 font-headline text-xl font-bold text-[#002155]">{opp.title}</h3>
-                <p className="mt-1 text-sm text-[#434651]">by {opp.organizer}</p>
-                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#434651]">
-                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Date</dt><dd>{dateLabel}</dd></div>
-                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Location</dt><dd>{location}{opp.mode ? ` · ${opp.mode}` : ''}{opp.distanceLabel ? ` · ${opp.distanceLabel}` : ''}</dd></div>
-                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Team</dt><dd>{team}</dd></div>
-                  <div><dt className="font-bold uppercase tracking-wider text-[#747782]">Domain</dt><dd>{domainLabel}</dd></div>
-                  <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Prize</dt><dd>{opp.prize ?? '—'}</dd></div>
-                  <div className="col-span-2"><dt className="font-bold uppercase tracking-wider text-[#747782]">Deadline</dt><dd>{opp.registrationDeadline ? `${formatDate(opp.registrationDeadline)}${days != null && days >= 0 ? ` · ${days}d left` : ''}` : opp.startDate ? `Not published — starts ${formatDate(opp.startDate)}` : 'Not published'}</dd></div>
-                  {opp.registrations ? (
-                    <div className="col-span-2">
-                      <dt className="font-bold uppercase tracking-wider text-[#747782]">Popularity</dt>
-                      <dd>
-                        {opp.registrations.toLocaleString('en-IN')} registered on{' '}
-                        {hubSourceLabel(opp.sourceType)}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-                <div className="mt-auto flex flex-wrap gap-2 pt-5">
-                  {opp.applicationUrl ? (
-                    <a href={opp.applicationUrl} target="_blank" rel="noopener noreferrer" className="bg-[#002155] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90">
+
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 pb-4">
+                  <span
+                    title={opp.regStatusSource === 'startDate' ? 'No deadline published by the source — this is the start date' : undefined}
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(opp.regStatus)}`}
+                  >
+                    {opp.registrationDeadline
+                      ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${opp.regStatus !== 'CLOSED' && days != null && days >= 0 ? ` · ${days} day${days === 1 ? '' : 's'} left` : ''}`
+                      : opp.startDate
+                        ? `Closes with start · ${formatDate(opp.startDate)}`
+                        : 'Deadline not published'}
+                  </span>
+                </div>
+                <div className="mt-auto flex items-center gap-2 border-t border-[#e8e7e3] bg-[#fbfaf8] px-5 py-3">
+                  {opp.applicationUrl && opp.regStatus !== 'CLOSED' ? (
+                    <a
+                      href={opp.applicationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
+                    >
                       Register
                     </a>
-                  ) : null}
-                  <button onClick={() => setSelected(opp)} className="border border-[#002155] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white">
-                    View Details
+                  ) : (
+                    <span
+                      title={opp.applicationUrl ? 'The source has closed registration' : 'No registration link published'}
+                      className="flex-1 cursor-default border border-[#d8dae1] bg-[#f2f2f0] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-[#5c606b]"
+                    >
+                      {opp.applicationUrl ? 'Registration closed' : 'No link yet'}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setSelected(opp)}
+                    className="border border-[#002155] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#002155] hover:bg-[#002155] hover:text-white"
+                  >
+                    Details
                   </button>
                   <button
-                    onClick={() => void setInterest(opp, opp.myInterest ? 'SAVED' : 'SAVED')}
-                    className="border border-[#8c4f00] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#8c4f00] hover:bg-[#fdf6ec]"
+                    onClick={() => void setInterest(opp, 'SAVED')}
+                    title={opp.myInterest ? 'Saved' : 'Save for later'}
+                    aria-label={opp.myInterest ? 'Saved' : 'Save for later'}
+                    aria-pressed={!!opp.myInterest}
+                    className="flex h-[34px] w-[34px] shrink-0 items-center justify-center border border-[#c4c6d3] text-[#8c4f00] hover:border-[#8c4f00] hover:bg-[#fdf6ec]"
                   >
-                    {opp.myInterest ? '✓ Saved' : 'Bookmark'}
+                    <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
+                      {opp.myInterest ? 'bookmark' : 'bookmark_border'}
+                    </span>
                   </button>
                 </div>
               </article>
