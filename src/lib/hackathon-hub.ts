@@ -58,13 +58,27 @@ export function hubSourceLabel(sourceType: string | null | undefined): string {
   return HUB_SOURCE_LABELS[sourceType] ?? sourceType.replace(/_/g, ' ').toLowerCase();
 }
 
+/**
+ * A bare date means the whole day. Sources publish "closes 23 Oct", which lands
+ * as midnight — comparing that instant to the clock closed the event at 00:00 of
+ * its own deadline day, so anything closing *today* read CLOSED all day and an
+ * event ending today read COMPLETED from the small hours. Values that carry a
+ * real time keep it.
+ */
+function endOfDayIfDateOnly(d: Date): number {
+  const dateOnly =
+    d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
+  return dateOnly ? d.getTime() + 86_400_000 - 1 : d.getTime();
+}
+
 export function getRegistrationStatus(deadline: Date | string | null | undefined, now = new Date()): HubRegistrationStatus {
   if (!deadline) return 'UNKNOWN';
   const d = deadline instanceof Date ? deadline : new Date(deadline);
   if (Number.isNaN(d.getTime())) return 'UNKNOWN';
   const t = now.getTime();
-  if (d.getTime() < t) return 'CLOSED';
-  if (d.getTime() <= t + 7 * 86_400_000) return 'CLOSING_SOON';
+  const closes = endOfDayIfDateOnly(d);
+  if (closes < t) return 'CLOSED';
+  if (closes <= t + 7 * 86_400_000) return 'CLOSING_SOON';
   return 'OPEN';
 }
 
@@ -79,7 +93,7 @@ export function getEventStatus(
   const t = now.getTime();
   if (s.getTime() > t) return 'UPCOMING';
   if (e && !Number.isNaN(e.getTime())) {
-    if (t <= e.getTime()) return 'ONGOING';
+    if (t <= endOfDayIfDateOnly(e)) return 'ONGOING';
     return 'COMPLETED';
   }
   // No end date: treat start day as single-day event

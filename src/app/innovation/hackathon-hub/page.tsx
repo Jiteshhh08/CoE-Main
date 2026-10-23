@@ -379,10 +379,23 @@ export default function HackathonHubPage() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((opp) => {
             const days = daysUntil(opp.registrationDeadline);
+            // A deadline stored as a bare date closes at the end of that day, so
+            // it is still open on the day itself.
+            const closesIn =
+              opp.regStatus === 'CLOSED' || days == null
+                ? ''
+                : days > 1
+                  ? ` · ${days} days left`
+                  : days === 1
+                    ? ' · 1 day left'
+                    : ' · today';
             const place = [opp.city, opp.state, opp.country].filter(Boolean).join(', ');
             const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
-            const startIso = opp.startDate ?? opp.registrationDeadline;
-            const badge = dateBadge(startIso);
+            // The date anchor answers "when is this hackathon" — the day it is on
+            // and closes. startDate is when the submission window opened, which
+            // reads as a registration date, not an event date.
+            const anchorIso = opp.endDate ?? opp.startDate ?? opp.registrationDeadline;
+            const badge = dateBadge(anchorIso);
             const span = eventTimeline(opp);
             const domainLabel = opp.themes?.[0] ?? opp.technologies?.[0] ?? opp.category;
             const modeLabel = opp.mode ? MODE_LABEL[opp.mode] ?? opp.mode : null;
@@ -473,7 +486,7 @@ export default function HackathonHubPage() {
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(opp.regStatus)}`}
                   >
                     {opp.registrationDeadline
-                      ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${opp.regStatus !== 'CLOSED' && days != null && days >= 0 ? ` · ${days} day${days === 1 ? '' : 's'} left` : ''}`
+                      ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${closesIn}`
                       : opp.startDate
                         ? 'Closes when it starts'
                         : 'Deadline not published'}
@@ -489,12 +502,24 @@ export default function HackathonHubPage() {
                     >
                       Register
                     </a>
+                  ) : opp.sourceUrl ? (
+                    // No usable application link, but we do know where the event
+                    // was published. "No link yet" hid a link we already had.
+                    <a
+                      href={opp.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open the original listing"
+                      className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
+                    >
+                      View listing
+                    </a>
                   ) : (
                     <span
-                      title={opp.applicationUrl ? 'The source has closed registration' : 'No registration link published'}
+                      title="The source published no link"
                       className="flex-1 cursor-default border border-[#d8dae1] bg-[#f2f2f0] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-[#5c606b]"
                     >
-                      {opp.applicationUrl ? 'Registration closed' : 'No link yet'}
+                      No link yet
                     </span>
                   )}
                   <button

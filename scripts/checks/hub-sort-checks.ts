@@ -58,6 +58,11 @@ const dateOf = (v: string | null) => (v ? new Date(v).getTime() : null);
   );
   ok('deadline: no undated rows', deadline.every((r) => r.registrationDeadline !== null));
   ok(
+    'deadline: nothing already closed',
+    deadline.every((r) => r.regStatus !== 'CLOSED'),
+    deadline.filter((r) => r.regStatus === 'CLOSED').map((r) => `${r.title} (${r.registrationDeadline?.slice(0, 10)})`).join(', '),
+  );
+  ok(
     'deadline: ascending',
     deadline.every((r, i) => i === 0 || dateOf(r.registrationDeadline)! >= dateOf(deadline[i - 1].registrationDeadline)!),
   );
