@@ -123,6 +123,15 @@ export default async function HackathonsLandingPage() {
             >
               External opportunities
             </Link>
+            <Link
+              href="/innovation/hackathon-hub"
+              className="inline-flex items-center gap-2 border border-secondary-container/70 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:border-secondary-container hover:bg-white/10"
+            >
+              Hackathon Hub
+              <span className="animate-pulse bg-[#fd9923] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-widest text-[#002155]">
+                NEW
+              </span>
+            </Link>
           </div>
           <p className="mt-4 text-sm text-white/70">
             New to hackathons?{" "}
