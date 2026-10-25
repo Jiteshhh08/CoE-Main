@@ -110,6 +110,24 @@ export function getEventStatus(
   return t - s.getTime() < 86_400_000 ? 'ONGOING' : 'COMPLETED';
 }
 
+/**
+ * Where the primary CTA points. A closed event often still carries the
+ * application URL its source published, but offering "Register" after the
+ * deadline is a dead end; the original listing is the honest fallback. The
+ * card and the modal share this one rule.
+ */
+export type HubCtaTarget = { href: string; kind: 'register' | 'listing' };
+
+export function hubCtaTarget(opp: {
+  applicationUrl: string | null;
+  sourceUrl: string | null;
+  regStatus: string;
+}): HubCtaTarget | null {
+  if (opp.applicationUrl && opp.regStatus !== 'CLOSED') return { href: opp.applicationUrl, kind: 'register' };
+  if (opp.sourceUrl) return { href: opp.sourceUrl, kind: 'listing' };
+  return null;
+}
+
 export function normalizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }

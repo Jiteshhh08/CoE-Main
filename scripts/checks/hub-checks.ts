@@ -21,6 +21,7 @@ import {
   isHubCategory,
   getEventStatus,
   getRegistrationStatus,
+  hubCtaTarget,
 } from "../../src/lib/hackathon-hub";
 import {
   extractFromHtml,
@@ -200,6 +201,18 @@ check("isHubCandidateStatus: known states pass, typos fail", () => {
   assert.ok(isHubCandidateStatus("NEEDS_UPDATE"));
   assert.ok(!isHubCandidateStatus("VERIFYED"));
   assert.ok(!isHubCandidateStatus(""));
+});
+
+// ─── Card/modal CTA parity ───
+check("cta: closed never offers register; source is the fallback", () => {
+  const link = { applicationUrl: "https://example.com/apply", sourceUrl: "https://example.com/listing" };
+  assert.equal(hubCtaTarget({ ...link, regStatus: "OPEN" })?.kind, "register");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSING_SOON" })?.kind, "register");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSED" })?.kind, "listing");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSED" })?.href, link.sourceUrl);
+  assert.equal(hubCtaTarget({ applicationUrl: link.applicationUrl, sourceUrl: null, regStatus: "CLOSED" }), null);
+  assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: link.sourceUrl, regStatus: "OPEN" })?.kind, "listing");
+  assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: null, regStatus: "OPEN" }), null);
 });
 
 // ══════════════════════════════════════════════════════════════════════

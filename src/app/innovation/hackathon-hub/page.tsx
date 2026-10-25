@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { hubSourceLabel } from '@/lib/hackathon-hub';
+import { hubCtaTarget, hubSourceLabel } from '@/lib/hackathon-hub';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
 
@@ -307,6 +307,8 @@ export default function HackathonHubPage() {
     }
   };
 
+  const selectedCta = selected ? hubCtaTarget(selected) : null;
+
   return (
     <main className="max-w-7xl mx-auto mt-10 px-4 md:px-8 pt-[120px] pb-14 min-h-screen">
       <header className="mb-6 border-l-4 border-[#002155] pl-4 md:pl-6">
@@ -462,6 +464,7 @@ export default function HackathonHubPage() {
               opp.registrations ? `${opp.registrations.toLocaleString('en-IN')} registered` : null,
               opp.distanceLabel,
             ].filter((v, i, arr): v is string => !!v && arr.indexOf(v) === i);
+            const cta = hubCtaTarget(opp);
             return (
               <article
                 key={opp.id}
@@ -545,26 +548,15 @@ export default function HackathonHubPage() {
                   </span>
                 </div>
                 <div className="mt-auto flex items-center gap-2 border-t border-[#e8e7e3] bg-[#fbfaf8] px-5 py-3">
-                  {opp.applicationUrl && opp.regStatus !== 'CLOSED' ? (
+                  {cta ? (
                     <a
-                      href={opp.applicationUrl}
+                      href={cta.href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title={cta.kind === 'listing' ? 'Open the original listing' : undefined}
                       className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
                     >
-                      Register
-                    </a>
-                  ) : opp.sourceUrl ? (
-                    // No usable application link, but we do know where the event
-                    // was published. "No link yet" hid a link we already had.
-                    <a
-                      href={opp.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open the original listing"
-                      className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
-                    >
-                      View listing
+                      {cta.kind === 'register' ? 'Register' : 'View listing'}
                     </a>
                   ) : (
                     <span
@@ -663,7 +655,21 @@ export default function HackathonHubPage() {
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
                 <p className="mt-1">Deadline: {selected.registrationDeadline ? formatDate(selected.registrationDeadline) : 'Not published'} · Status: {selected.regStatus}{selected.regStatusSource === 'startDate' ? ' (derived from start date)' : ''}</p>
-                {selected.applicationUrl ? <a href={selected.applicationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Register now</a> : null}
+                {selectedCta ? (
+                  <a
+                    href={selectedCta.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={selectedCta.kind === 'listing' ? 'Open the original listing' : undefined}
+                    className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
+                  >
+                    {selectedCta.kind === 'register' ? 'Register now' : 'View listing'}
+                  </a>
+                ) : (
+                  <span className="mt-2 inline-block border border-[#d8dae1] bg-[#f2f2f0] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#5c606b]">
+                    No link yet
+                  </span>
+                )}
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Eligibility</h3>
                 <p className="mt-1">{selected.eligibility ?? 'Open — confirm on official page.'}</p>
