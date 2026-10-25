@@ -483,6 +483,8 @@ async function runDbChecks() {
     mode?: string | null;
     themes?: string[];
     startDate?: Date | null;
+    endDate?: Date | null;
+    registrationDeadline?: Date | null;
     createdAt?: Date;
   }) => {
     const row = await prisma.opportunity.create({
@@ -500,6 +502,8 @@ async function runDbChecks() {
         mode: data.mode ?? null,
         themes: data.themes ?? undefined,
         startDate: data.startDate ?? null,
+        endDate: data.endDate ?? null,
+        registrationDeadline: data.registrationDeadline ?? null,
         createdAt: data.createdAt ?? undefined,
         createdById: actorId,
       },
@@ -746,6 +750,41 @@ async function runDbChecks() {
       assert.equal("createdById" in item, false);
       assert.equal("pageHash" in item, false);
       assert.equal("verificationStatus" in item, true);
+    });
+
+    // A finished event with no published deadline has to be judged by its
+    // start date. Requiring a non-null deadline here kept these rows in the
+    // listing forever, even though the card already said "Closes when it starts".
+    await checkAsync("dead event: no deadline still means closed at start; running event stays", async () => {
+      const token = `${MARK} NullDeadline`;
+      const day = 86_400_000;
+      const past = new Date(Date.now() - 10 * day);
+      const future = new Date(Date.now() + 10 * day);
+      const dead = await mkOpp({
+        title: `${token} Dead`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+        startDate: past,
+        endDate: past,
+      });
+      const running = await mkOpp({
+        title: `${token} Running`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+        startDate: past,
+        endDate: future,
+      });
+      const undated = await mkOpp({
+        title: `${token} Undated`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+      });
+      const json = await (await api(`/api/hackathon-hub?search=${encodeURIComponent(token)}&limit=50`)).json();
+      assert.equal(json.data.items.length, 2);
+      const ids = json.data.items.map((r: { id: number }) => r.id);
+      assert.equal(ids.includes(dead.id), false, "finished without a deadline must be hidden");
+      assert.ok(ids.includes(running.id), "still-running event must stay");
+      assert.ok(ids.includes(undated.id), "no dates at all is unknown, not finished");
     });
 
     await checkAsync("issue9: rate limiter returns 429 after the window budget", async () => {

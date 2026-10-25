@@ -150,16 +150,29 @@ export async function GET(req: NextRequest) {
     today.setHours(0, 0, 0, 0);
 
     // A hub listing should not surface events that are over and unjoinable.
-    // Excluded only when the registration closed AND the event ended; closed
+    // Excluded only when registration closed AND the event ended; closed
     // registration on a still-running event is a legitimate card.
+    //
+    // "Registration closed" uses the same effective close as the rest of the
+    // Hub: the published deadline, else the start date (a source that publishes
+    // no deadline closes when the event starts). Requiring a non-null
+    // `registrationDeadline` here left every deadline-less finished event in the
+    // listing forever — the card correctly read "Closes when it starts", but the
+    // API still treated it as joinable.
     //
     // Every comparison is null-guarded on purpose. A bare `lt` on a null column
     // yields NULL, and `NOT (TRUE AND NULL)` is NULL, so unguarded rows with a
     // missing date were silently dropped from the whole listing.
+    const registrationClosed = {
+      OR: [
+        { registrationDeadline: { not: null, lt: today } },
+        { registrationDeadline: null, startDate: { not: null, lt: today } },
+      ],
+    } satisfies Prisma.OpportunityWhereInput;
     const deadEvent: Prisma.OpportunityWhereInput = {
       NOT: {
         AND: [
-          { registrationDeadline: { not: null, lt: today } },
+          registrationClosed,
           {
             OR: [
               { endDate: { not: null, lt: today } },
