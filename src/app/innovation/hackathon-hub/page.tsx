@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { hubSourceLabel } from '@/lib/hackathon-hub';
+import { hubCtaTarget, hubSourceLabel } from '@/lib/hackathon-hub';
 
 type ApiResponse<T> = { success: boolean; message: string; data: T | null };
 
@@ -10,7 +10,14 @@ type HubPage = {
   items: HubOpportunity[];
   nextCursor: number | null;
   hasMore: boolean;
+  viewer?: HubViewer;
   facets?: { cities: { city: string; count: number }[] };
+};
+
+/** Answered by the listing, so the save button never discovers the role by failing. */
+type HubViewer = {
+  authenticated: boolean;
+  canSave: boolean;
 };
 
 type HubOpportunity = {
@@ -83,6 +90,27 @@ const urgencyChip = (status: HubOpportunity['regStatus']): string => {
   return 'border-[#dfe2e8] bg-white text-[#747782]';
 };
 
+const REG_STATUS_LABEL: Record<HubOpportunity['regStatus'], string> = {
+  OPEN: 'Registration open',
+  CLOSING_SOON: 'Closing soon',
+  CLOSED: 'Registration closed',
+  UNKNOWN: 'Status unknown',
+};
+
+/** One sentence for the deadline, shared by the card and the modal. */
+const registrationDetail = (opp: HubOpportunity): string => {
+  if (!opp.registrationDeadline) {
+    return opp.startDate ? `Closes with start · ${formatDate(opp.startDate)}` : 'Deadline not published';
+  }
+  if (opp.regStatus === 'CLOSED') return `Closed ${formatDate(opp.registrationDeadline)}`;
+  const days = daysUntil(opp.registrationDeadline);
+  const when = formatDate(opp.registrationDeadline);
+  if (days == null) return `Closes ${when}`;
+  if (days > 1) return `Closes ${when} · ${days} days left`;
+  if (days === 1) return `Closes ${when} · 1 day left`;
+  return `Closes ${when} · today`;
+};
+
 /** "OFFLINE" tells a student nothing; "In person" does. */
 const MODE_LABEL: Record<string, string> = {
   ONLINE: 'Online',
@@ -140,6 +168,8 @@ export default function HackathonHubPage() {
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<HubOpportunity | null>(null);
+  const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [viewer, setViewer] = useState<HubViewer>({ authenticated: false, canSave: false });
 
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('');
@@ -148,6 +178,11 @@ export default function HackathonHubPage() {
   const [domain, setDomain] = useState('');
   const [month, setMonth] = useState('');
   const [sort, setSort] = useState<HubSort>('relevant');
+
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const selectedId = selected?.id ?? null;
 
   const buildParams = (cursor?: number | null) => {
     const params = new URLSearchParams();
@@ -173,6 +208,7 @@ export default function HackathonHubPage() {
       setRows(json.data.items);
       setNextCursor(json.data.nextCursor);
       setHasMore(json.data.hasMore);
+      if (json.data.viewer) setViewer(json.data.viewer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load hackathons.');
     } finally {
@@ -193,6 +229,7 @@ export default function HackathonHubPage() {
       setRows((prev) => [...prev, ...data.items]);
       setNextCursor(data.nextCursor);
       setHasMore(data.hasMore);
+      if (data.viewer) setViewer(data.viewer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load more hackathons.');
     } finally {
@@ -205,6 +242,58 @@ export default function HackathonHubPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, city, mode, regStatus, domain, month, sort]);
+
+  // Modal behaviour: lock the page behind the dialog, keep Tab inside it,
+  // close on Escape, and return focus to whichever control opened it.
+  useEffect(() => {
+    if (selectedId === null) return;
+
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelected(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      openerRef.current?.focus();
+    };
+  }, [selectedId]);
 
   const [cityFacets, setCityFacets] = useState<{ city: string; count: number }[]>([]);
 
@@ -247,21 +336,56 @@ export default function HackathonHubPage() {
     return out;
   }, []);
 
-  const setInterest = async (opp: HubOpportunity, status: 'SAVED' | 'INTERESTED') => {
+  /** The card and the open modal must never disagree about the save state. */
+  const patchInterest = (id: number, myInterest: HubOpportunity['myInterest']) => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, myInterest } : r)));
+    setSelected((prev) => (prev && prev.id === id ? { ...prev, myInterest } : prev));
+  };
+
+  /**
+   * One button, two directions. It used to POST `SAVED` unconditionally, so a
+   * saved card could only ever be re-saved — the stored interest was invisible
+   * to the user and impossible to remove from the Hub. Clicking now removes the
+   * bookmark, using the DELETE the API already exposed.
+   *
+   * Optimistic: the icon flips immediately and rolls back if the server rejects
+   * the change, so the card never claims a save that did not happen.
+   */
+  const toggleSaved = async (opp: HubOpportunity) => {
+    if (savingIds.includes(opp.id)) return;
+    const previous = opp.myInterest;
+    const wasSaved = Boolean(previous);
+    setError('');
+    setSavingIds((prev) => [...prev, opp.id]);
+    patchInterest(opp.id, wasSaved ? null : { status: 'SAVED' });
     try {
       const res = await fetch(`/api/opportunities/${opp.id}/interest`, {
-        method: 'POST',
+        method: wasSaved ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ status }),
+        ...(wasSaved ? {} : { body: JSON.stringify({ status: 'SAVED' }) }),
       });
       const json = (await res.json()) as ApiResponse<unknown>;
-      if (!json.success) throw new Error(json.message || 'Failed to update interest.');
-      setRows((prev) => prev.map((r) => (r.id === opp.id ? { ...r, myInterest: { status } } : r)));
+      if (!json.success) {
+        if (res.status === 401 || res.status === 403) {
+          // The session changed under us (expired token, or a role the listing
+          // did not know about). Re-render the truthful button state instead of
+          // a red banner the user cannot act on.
+          setViewer({ authenticated: res.status === 403, canSave: false });
+          patchInterest(opp.id, previous);
+          return;
+        }
+        throw new Error(json.message || 'Failed to update interest.');
+      }
     } catch (err) {
+      patchInterest(opp.id, previous);
       setError(err instanceof Error ? err.message : 'Failed to update interest.');
+    } finally {
+      setSavingIds((prev) => prev.filter((id) => id !== opp.id));
     }
   };
+
+  const selectedCta = selected ? hubCtaTarget(selected) : null;
 
   return (
     <main className="max-w-7xl mx-auto mt-10 px-4 md:px-8 pt-[120px] pb-14 min-h-screen">
@@ -386,17 +510,6 @@ export default function HackathonHubPage() {
       ) : (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((opp) => {
-            const days = daysUntil(opp.registrationDeadline);
-            // A deadline stored as a bare date closes at the end of that day, so
-            // it is still open on the day itself.
-            const closesIn =
-              opp.regStatus === 'CLOSED' || days == null
-                ? ''
-                : days > 1
-                  ? ` · ${days} days left`
-                  : days === 1
-                    ? ' · 1 day left'
-                    : ' · today';
             const place = [opp.city, opp.state, opp.country].filter(Boolean).join(', ');
             const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
             // The date anchor answers "when is this hackathon" — the day it is on
@@ -418,6 +531,7 @@ export default function HackathonHubPage() {
               opp.registrations ? `${opp.registrations.toLocaleString('en-IN')} registered` : null,
               opp.distanceLabel,
             ].filter((v, i, arr): v is string => !!v && arr.indexOf(v) === i);
+            const cta = hubCtaTarget(opp);
             return (
               <article
                 key={opp.id}
@@ -493,34 +607,19 @@ export default function HackathonHubPage() {
                     title={opp.regStatusSource === 'startDate' ? 'No deadline published by the source — this is the start date' : undefined}
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(opp.regStatus)}`}
                   >
-                    {opp.registrationDeadline
-                      ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${closesIn}`
-                      : opp.startDate
-                        ? 'Closes when it starts'
-                        : 'Deadline not published'}
+                    {registrationDetail(opp)}
                   </span>
                 </div>
                 <div className="mt-auto flex items-center gap-2 border-t border-[#e8e7e3] bg-[#fbfaf8] px-5 py-3">
-                  {opp.applicationUrl && opp.regStatus !== 'CLOSED' ? (
+                  {cta ? (
                     <a
-                      href={opp.applicationUrl}
+                      href={cta.href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title={cta.kind === 'listing' ? 'Open the original listing' : undefined}
                       className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
                     >
-                      Register
-                    </a>
-                  ) : opp.sourceUrl ? (
-                    // No usable application link, but we do know where the event
-                    // was published. "No link yet" hid a link we already had.
-                    <a
-                      href={opp.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open the original listing"
-                      className="flex-1 bg-[#002155] px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
-                    >
-                      View listing
+                      {cta.kind === 'register' ? 'Register' : 'View listing'}
                     </a>
                   ) : (
                     <span
@@ -536,17 +635,51 @@ export default function HackathonHubPage() {
                   >
                     Details
                   </button>
-                  <button
-                    onClick={() => void setInterest(opp, 'SAVED')}
-                    title={opp.myInterest ? 'Saved' : 'Save for later'}
-                    aria-label={opp.myInterest ? 'Saved' : 'Save for later'}
-                    aria-pressed={!!opp.myInterest}
-                    className="flex h-[34px] w-[34px] shrink-0 items-center justify-center border border-[#c4c6d3] text-[#8c4f00] hover:border-[#8c4f00] hover:bg-[#fdf6ec]"
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
-                      {opp.myInterest ? 'bookmark' : 'bookmark_border'}
-                    </span>
-                  </button>
+                  {viewer.canSave ? (
+                    <button
+                      onClick={() => void toggleSaved(opp)}
+                      disabled={savingIds.includes(opp.id)}
+                      title={opp.myInterest ? 'Remove from saved' : 'Save for later'}
+                      aria-label={opp.myInterest ? 'Remove from saved' : 'Save for later'}
+                      aria-pressed={!!opp.myInterest}
+                      className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center border text-[#8c4f00] disabled:opacity-60 ${
+                        opp.myInterest
+                          ? 'border-[#8c4f00] bg-[#fdf6ec]'
+                          : 'border-[#c4c6d3] hover:border-[#8c4f00] hover:bg-[#fdf6ec]'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
+                        {opp.myInterest ? 'bookmark' : 'bookmark_border'}
+                      </span>
+                    </button>
+                  ) : viewer.authenticated ? (
+                    // A signed-in non-student has no write to attempt. Say so
+                    // once, here, instead of letting the click produce a 403.
+                    <button
+                      type="button"
+                      disabled
+                      title="Only students can save opportunities"
+                      aria-label="Only students can save opportunities"
+                      className="flex h-[34px] w-[34px] shrink-0 cursor-not-allowed items-center justify-center border border-[#e3e2df] text-[#b0b3bd]"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
+                        bookmark_border
+                      </span>
+                    </button>
+                  ) : (
+                    // Signed out: the actionable state is "sign in", not a save
+                    // that is guaranteed to 401.
+                    <Link
+                      href={`/login?next=${encodeURIComponent('/innovation/hackathon-hub')}`}
+                      title="Sign in to save"
+                      className="flex h-[34px] shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#c4c6d3] px-2 text-[10px] font-bold uppercase tracking-wider text-[#8c4f00] hover:border-[#8c4f00] hover:bg-[#fdf6ec]"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>
+                        bookmark_border
+                      </span>
+                      Sign in to save
+                    </Link>
+                  )}
                 </div>
               </article>
             );
@@ -567,15 +700,35 @@ export default function HackathonHubPage() {
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-4" onClick={() => setSelected(null)}>
-          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto bg-white border border-[#002155] p-6" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 md:items-center"
+          onClick={() => setSelected(null)}
+          role="presentation"
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hub-detail-title"
+            tabIndex={-1}
+            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto border border-[#002155] bg-white p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#8c4f00]">{selected.category} · {selected.eventStatus}</p>
-                <h2 className="mt-1 font-headline text-2xl font-bold text-[#002155]">{selected.title}</h2>
+                <h2 id="hub-detail-title" className="mt-1 font-headline text-2xl font-bold text-[#002155]">{selected.title}</h2>
                 <p className="text-sm text-[#434651]">by {selected.organizer}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="border border-[#c4c6d3] px-3 py-2 text-xs font-bold uppercase tracking-wider">Close</button>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                onClick={() => setSelected(null)}
+                aria-label="Close details"
+                className="border border-[#c4c6d3] px-3 py-2 text-xs font-bold uppercase tracking-wider hover:border-[#002155]"
+              >
+                Close
+              </button>
             </div>
             <div className="mt-4 space-y-4 text-sm text-[#434651]">
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Overview</h3>
@@ -583,9 +736,34 @@ export default function HackathonHubPage() {
                 <p className="mt-1">Dates: {formatDate(selected.startDate)} → {formatDate(selected.endDate)}</p>
                 {selected.description ? <p className="mt-2">{selected.description}</p> : null}
               </section>
-              <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
-                <p className="mt-1">Deadline: {selected.registrationDeadline ? formatDate(selected.registrationDeadline) : 'Not published'} · Status: {selected.regStatus}{selected.regStatusSource === 'startDate' ? ' (derived from start date)' : ''}</p>
-                {selected.applicationUrl ? <a href={selected.applicationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">Register now</a> : null}
+              <section>
+                <h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(selected.regStatus)}`}>
+                    {REG_STATUS_LABEL[selected.regStatus]}
+                  </span>
+                  <span>{registrationDetail(selected)}</span>
+                </div>
+                {selected.regStatusSource === 'startDate' ? (
+                  <p className="mt-1 text-xs text-[#747782]">No deadline published by the source — this is the start date.</p>
+                ) : null}
+                <div className="mt-2">
+                  {selectedCta ? (
+                    <a
+                      href={selectedCta.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={selectedCta.kind === 'listing' ? 'Open the original listing' : undefined}
+                      className="inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
+                    >
+                      {selectedCta.kind === 'register' ? 'Register now' : 'View listing'}
+                    </a>
+                  ) : (
+                    <span className="inline-block border border-[#d8dae1] bg-[#f2f2f0] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#5c606b]">
+                      No link yet
+                    </span>
+                  )}
+                </div>
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Eligibility</h3>
                 <p className="mt-1">{selected.eligibility ?? 'Open — confirm on official page.'}</p>

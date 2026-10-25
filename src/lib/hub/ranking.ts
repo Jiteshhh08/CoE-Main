@@ -12,6 +12,7 @@
  * *within their own source* before anything mixes them.
  */
 import type { ExtractedEvent } from './extract';
+import { hubDaysUntil } from '@/lib/hackathon-hub';
 
 /**
  * Percentile (0-100) of each value within its own list. A null means the source
@@ -121,7 +122,12 @@ export function computeHubScore(o: RankableOpportunity, now = Date.now()): numbe
   score += reachabilityPoints(o);
 
   if (o.registrationDeadline) {
-    const days = (o.registrationDeadline.getTime() - now) / 86_400_000;
+    // Whole calendar days, not elapsed milliseconds. A deadline published as a
+    // bare date is stored at midnight; comparing instants made it "passed" at
+    // 00:00 of the day it closes and dropped 15 urgency points, so the score
+    // decayed every night. Day arithmetic keeps one value for the whole day and
+    // makes the cached number change only when a tier actually changes.
+    const days = hubDaysUntil(o.registrationDeadline, new Date(now));
     if (days < 0) score += 0;
     else if (days <= 7) score += RELEVANCE_WEIGHTS.urgency;
     else if (days <= 30) score += Math.round(RELEVANCE_WEIGHTS.urgency * 0.66);

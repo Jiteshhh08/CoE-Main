@@ -99,6 +99,10 @@ Existing catalog row. Hub-relevant additions (all nullable/additive, zero-backfi
 | `teamMin`, `teamMax` | `Int?` (1–20) | Team size range |
 | `sourceUrl` | `Text?` | Page the data came from |
 | `sourceType` | `String` (default `ADMIN`) | `OFFICIAL_WEBSITE`, `DEVFOLIO`, `UNSTOP`, `HACKEREARTH`, `HACK2SKILL`, `MLH`, `INDIAHACKATHONS`, `COLLEGE_WEBSITE`, `GOVERNMENT`, `SOCIAL_MEDIA`, `ADMIN`, `GOOGLE_SHEET`, `OTHER` |
+| `country` | `String?` | Country as published by the source; drives the offline-India gate |
+| `popularity` | `Int?` | Percentile (0–100) of this event's signup count within its own source |
+| `registrations` | `Int?` | Raw signup count, for display ("3,310 registered on Unstop") |
+| `hubScore` | `Int?` | Cached relevance 0–100 (see ranking) |
 | `verificationStatus` | `String` (default `UNVERIFIED`) | `UNVERIFIED`, `PLATFORM_VERIFIED`, `OFFICIAL_SOURCE`, `ADMIN_VERIFIED`, `VERIFIED`, `NEEDS_UPDATE` |
 | `lastVerifiedAt` | `DateTime?` | Last human/machine check |
 | `pageHash` | `String?` | SHA-256 of normalized source page (change detection) |
@@ -189,20 +193,20 @@ Three layers, in order — missing stays `NULL`, never invented:
 - AI output: JSON `null`/`"null"`/`"undefined"`/`"N/A"`/`"none"`/`"-"`/blank are missing, dates must be valid ISO, and invalid values never overwrite rule/JSON-LD evidence.
 - `registrationUrl` is never a LISTING page URL. On a platform that signs users up on the event detail page itself (`registrationOnPage` — Unstop, Devfolio, Hack2Skill), the event page URL **is** the registration URL and is used. Without this, `registrationUrl` is unsatisfiable for those sources and no event from them could ever auto-verify.
 
-**Confidence** (`scoreConfidence`): base 0.4 + 0.05 per mandatory field (six -> 0.70) + source bonus (official/government/admin +0.2, aggregators +0.15) + city 0.03 + prize 0.02, capped 0.95. `HUB_VERIFY_THRESHOLD` (0.9) **and** all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing.
+**Confidence** (`scoreConfidence`): base 0.40 + 0.05 per mandatory field (six -> 0.70) + source bonus (official/government/admin +0.20, aggregators +0.15) + city 0.03 (also awarded for an ONLINE event, where a city is meaningless) + prize 0.02, capped 0.95. `HUB_VERIFY_THRESHOLD` (0.85) **and** all mandatory fields → `VERIFIED`, else `NEEDS_REVIEW` listing what's missing.
 
-Both conditions are required: `mandatoryMissing().length === 0 && confidence >= HUB_VERIFY_THRESHOLD`. The score alone reaching 0.9 does not pass — a complete government event still needs every mandatory field.
+Both conditions are required: `mandatoryMissing().length === 0 && confidence >= HUB_VERIFY_THRESHOLD`. The score alone reaching 0.85 does not pass — a candidate missing a mandatory field still needs that field, however high the bonuses push the arithmetic. City is a real mandatory field for `OFFLINE`/`HYBRID`, not an implicit arithmetic cap: an in-person event with no location is not publishable.
 
 Ceilings that ACTUALLY reach the threshold (this is the trap — verify it whenever the formula changes):
 
-| source tier | complete extraction + city + prize | can auto-verify |
+| source tier | complete extraction | can auto-verify |
 |---|---|---|
-| official / government / admin | 0.95 | yes |
-| aggregator (`UNSTOP`, `DEVFOLIO`, `HACKEREARTH`, `HACK2SKILL`, `MLH`, `COLLEGE_WEBSITE`, `INDIAHACKATHONS`) | 0.90 | yes, but only when complete |
-| aggregator, ONLINE event (city not applicable) | 0.90 | yes — a city is meaningless for an online event, so its absence must not cap the score |
-| aggregator, OFFLINE and no city | 0.87 | no |
-| aggregator without city or prize | 0.85 | no |
-| unlisted source | 0.75 | no |
+| official / government / admin | 0.90, up to 0.95 with city + prize | yes |
+| aggregator (`UNSTOP`, `DEVFOLIO`, `HACKEREARTH`, `HACK2SKILL`, `MLH`, `COLLEGE_WEBSITE`, `INDIAHACKATHONS`, `DEVPOST`) | 0.85; 0.88 once online/city is known; 0.90 with a prize | yes, but only when complete |
+| aggregator missing any mandatory field | at most 0.85 even with both bonuses | no — the completeness gate fails |
+| unlisted source, complete | 0.70 + 0.03 + 0.02 = 0.75 | no |
+
+0.85, not 0.90, because completeness is already enforced separately by `mandatoryMissing()`. A complete aggregator listing starts at exactly 0.85 and can only climb on decoration (city, prize); at 0.90 a Devfolio event with a real organiser, both dates, mode and a working signup link was rejected for having no prize pool — 71 candidates sat in `NEEDS_REVIEW` with nothing missing.
 
 `INDIAHACKATHONS` previously appeared in **no** tier, capping it at 0.75 — below the threshold, so its candidates (96 of 111 in a live run) could never verify regardless of extraction quality. Regression-tested in `hub-search-checks.ts`.
 
@@ -226,10 +230,12 @@ Admin-only, explicit. Merges by registration/source URL, else normalized name + 
 Route: `/innovation/hackathon-hub` (linked left of Innovation Home as a gold **Hackathon Hub** button).
 
 - **Search** (name/organizer/keyword) on its own full-width line.
-- **Grouped filters** with plain labels: Where (city) · How (mode) · Status (registration) · When (month) · What (domain/tech) · Order (newest/deadline) · footer count + **Clear all**. (The old quick-chip row was removed as redundant.)
-- **Cards** (8 fields): status badge, event badge, verification badge, title, organizer, date, location (+ mode + `X km from TCET`), team, domain, prize, deadline. Register / View Details / Bookmark.
-- **Honest unknown handling**: the DB keeps `NULL`, but cards never show a confusing `UNKNOWN` badge — status falls back to the start date and is marked `*` ("deadline not published, derived from start date", tooltip + footer legend); deadline line reads "Not published — starts …".
-- **Details modal**: Overview, Registration, Eligibility, Competition, Benefits, Verification (last-verified + source link).
+- **Grouped filters** with plain labels: Where (city, populated from `?facets=1` so page 1 does not decide which cities exist) · How (mode) · Status (registration: open / closing soon / closed) · When (month — see the event-window rule in §8) · What (domain/tech) · Sort (`Most relevant`, `Most popular`, `Starting soon`, `Deadline`, `Newest`) · footer count + **Clear all**.
+- **Cards**: registration chip with a full deadline sentence ("Closes 12 Nov · 3 days left", "Closed 5 Oct", "Closes with start · 5 Nov 2026"), event badge, verification badge, title, organizer, date, location (+ mode + `X km from TCET`), team, domain, prize. Primary CTA comes from `hubCtaTarget()`: **Register** only while registration is open; otherwise **View listing** (the original source page); otherwise **No link yet**. A closed event never offers a registration link.
+- **Honest unknown handling**: the DB keeps `NULL`, but cards never show a confusing `UNKNOWN` badge — status falls back to the start date and is marked with a tooltip (`regStatusSource = startDate`), and a missing deadline reads "Closes with start · <date>". A start-date-derived deadline is also what the API uses to decide an event is finished (see §8).
+- **Bookmarks are a real toggle.** Unsaved → `POST /api/opportunities/[id]/interest {status:'SAVED'}`; saved → `DELETE` on the same route. The icon fills immediately (optimistic), both the card and the open modal are patched together, and a rejected request rolls the icon back to its exact previous state. The button is disabled while a request is in flight, so a double click cannot race two opposite writes.
+- **Save state is role-aware before any click.** The listing returns `viewer: { authenticated, canSave }`. Students get the toggle; other signed-in roles get a disabled "Only students can save opportunities" button; visitors get a **Sign in to save** link to `/login?next=%2Finnovation%2Fhackathon-hub`. A session that expires mid-click re-renders into the truthful state instead of showing a 401/403 banner.
+- **Details modal**: a real dialog — `role="dialog"`, `aria-modal`, labelled by its title, focus moved to Close on open and returned to the opener on close, Tab/Shift+Tab trapped inside, Escape closes, body scroll locked while open. Sections: Overview, Registration (status chip + shared deadline sentence + CTA), Eligibility, Competition, Benefits, Verification (last-verified + source link).
 
 ---
 
@@ -263,14 +269,19 @@ Public:
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/hackathon-hub?search=&city=&mode=&domain=&month=YYYY-MM&regStatus=&eventStatus=&sort=&limit=&cursor=` | Student listing (`APPROVED + showInHub`), derived `regStatus`/`eventStatus`, `regStatusSource`, `distanceKm`/`distanceLabel`, `myInterest`. Response: `{ items, nextCursor, hasMore }` |
+| `GET /api/hackathon-hub?search=&city=&mode=&domain=&month=YYYY-MM&regStatus=&eventStatus=&sort=&facets=1&limit=&cursor=` | Student listing (`APPROVED + showInHub`), derived `regStatus`/`eventStatus`, `regStatusSource`, `distanceKm`/`distanceLabel`, `myInterest`. Response: `{ items, nextCursor, hasMore, viewer, facets? }` |
 
 Public listing behaviour:
 
-- **Filter before limit.** `city`, `mode`, `month` (UTC range on `startDate`) and `search` are DB predicates. `domain` (themes/technologies) and the derived `regStatus`/`eventStatus` are applied while scanning the ordered result set — Prisma's MySQL JSON filters cannot match inside an array (verified empirically), so the endpoint keeps scanning 100-row pages until the requested page is full (hard cap 2000 rows/invocation). No filter is ever applied after truncation.
-- **Cursor pagination.** `limit` 1–50 (default 24); `cursor` is the last item id from the previous page. Ordering is `createdAt DESC, id DESC` (newest) or `registrationDeadline ASC, id ASC` (deadline), so pages are deterministic. Invalid cursors → `400`; stale cursors (row deleted) → `400`.
+- **Filter before limit.** `city`, `mode`, `month` and `search` are DB predicates. `month` means **the event window overlaps that month**, not "starts in that month": an event already under way still belongs to it. The window is `startDate < monthEnd` AND (`endDate >= monthStart` OR, with no end date, `registrationDeadline >= monthStart` OR, with neither, `startDate >= monthStart`). `domain` (themes/technologies) and the derived `regStatus`/`eventStatus` are applied while scanning the ordered result set — Prisma's MySQL JSON filters cannot match inside an array (verified empirically), so the endpoint keeps scanning 100-row pages until the requested page is full (hard cap 2000 rows/invocation). No filter is ever applied after truncation.
+- **Finished events are excluded.** A row is dropped only when registration is closed **and** the event has ended. "Registration closed" uses the published deadline, else the start date (a source that publishes no deadline closes when it starts), so a deadline-less finished event cannot linger in the listing or in the city facets. A still-running event with closed registration stays, and a row with no dates at all stays — unknown is not finished. Every comparison is null-guarded; a bare `lt` on a null column would make the whole `NOT` predicate NULL and hide unrelated rows.
+- **Derived filter values.** `regStatus=OPEN|CLOSING_SOON|CLOSED`; `eventStatus=UPCOMING|ONGOING|COMPLETED`. `UNKNOWN` is not offered as a filter — an unknown date is not a fourth state a student can act on. Both filters are applied after derivation, during the scan.
+- **Sorts** (`sort=`): `relevant` (default, cached `hubScore`), `popular` (raw `registrations`), `upcoming` (soonest `startDate`, future only), `deadline` (soonest `registrationDeadline`, today-or-later), `newest` (`createdAt`). MySQL sorts NULL lowest, so unscored/undated rows land last rather than floating to the top.
+- **Cursor pagination.** `limit` 1–50 (default 24); `cursor` is the last item id from the previous page, and the ordering above is always tie-broken by `id`, so pages are deterministic. Invalid cursors → `400`; stale cursors (row deleted) → `400`.
+- **Viewer + saved state.** `viewer` is `{ authenticated, canSave }`, computed with the same `authenticate`/`authorize` pair the interest write endpoints use; `canSave` is true only for `STUDENT`. `myInterest` is looked up only for students and is `null` for everyone else. Because the payload is now session-specific, the response is `Cache-Control: private, no-store` with `Vary: Cookie, Authorization` — a shared cache must never hand one student's saves to another.
 - **Rate limit.** 60 requests/minute per client key (`x-forwarded-for`/`x-real-ip`; the header is caller-controlled, so this is best-effort), `429` beyond that. Process-local, which matches the single-pm2-process deployment; the Map is hard-bounded at 10,000 keys with oldest-first eviction, so fresh spoofed keys cannot grow it without bound. Move to shared storage if the app is horizontally scaled.
 - **Allowlist.** The select omits `createdById` and `pageHash`. `verificationStatus`/`sourceUrl`/`lastVerifiedAt` remain for the trust badge and source link.
+- **Score refresh.** A `relevant` request first refreshes the near-deadline score window (throttled to once per five minutes per process); other sorts do not read the score and skip it.
 
 Admin (all `ADMIN`, 401/403 otherwise):
 
@@ -289,7 +300,7 @@ Automation (`CRON_SECRET` header/query **or** admin session):
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/cron/hub?job=discover\|extract\|monitor\|all` | Bounded pipeline slice (10-min extraction/discovery and 1-h monitor repeat guards; monitor refuses to overlap) |
+| `GET /api/cron/hub?job=discover\|extract\|monitor\|revalidate\|all[&batch=1-40][&force=1]` | Bounded pipeline slice (10-min extraction/discovery and 1-h monitor repeat guards; monitor refuses to overlap; `revalidate` re-scores stored candidates under the current rules; `all` also refreshes scores) |
 
 Note: a `200` means **this bounded slice completed**, not that the whole catalogue was processed. Monitor results include `checked` and `deferred`; the next run continues the rotation.
 
@@ -299,7 +310,9 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 
 - **Code:** stages live in `src/lib/hub/`; the only entrypoint is `/api/cron/hub` (`src/app/api/cron/hub/route.ts`), following the repo's cron conventions (see `docs/handoff/CRON_JOBS.md`).
 - **Scheduling:** none. The GitHub Actions workflow was removed; run `?job=all` from the dashboard (admin session) or call the route manually.
-- **Bounded work:** discovery walks a fixed source list, extraction takes 10 candidates, and monitoring takes a small batch inside a time budget. No stage runs unbounded inside one HTTP request.
+- **Bounded work:** discovery walks a fixed source list, extraction takes 10 candidates (an operator with the secret can raise `batch` to 40 and pass `force=1` to skip the repeat guard), and monitoring takes a small batch inside a time budget. No stage runs unbounded inside one HTTP request.
+- **Revalidate:** `?job=revalidate` re-scores stored candidates against today's gates and confidence rules (`VERIFIED`, `NEEDS_REVIEW`, and `REJECTED` — a rejection is a verdict on the rules as they stood, so a rule fix must be able to revisit it). It also refreshes the cached relevance window.
+- **Scores:** `job=all` has a `scores` stage, and `revalidate` refreshes the same window, so a quiet site still converges. The listing does the same opportunistically before a `relevant` sort, once per five minutes per process.
 - **Manual:** the dashboard's **Run pipeline now** button (admin session, no secret needed).
 
 ---
@@ -325,7 +338,7 @@ Note: a `200` means **this bounded slice completed**, not that the whole catalog
 - [ ] Env: optional `CRON_SECRET` if triggering the route outside an admin session, optional `QWEN_API_KEY` (rules-only extraction without it).
 - [ ] Seed content: publish the review queue + import a starter CSV so the Hub isn't empty.
 - [ ] Spot-check as student: only `APPROVED + showInHub` rows visible; admin-only routes 403 otherwise.
-- [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (67 checks; DB-backed ones create and delete uniquely-marked rows).
+- [ ] Before merging: `npx tsc --noEmit`, `npm run lint` (repo has pre-existing `no-explicit-any` errors in `email-delivery.ts`/`mailer.ts`), `npm run build`, and `npx --yes tsx --env-file=.env scripts/checks/hub-checks.ts` (73 checks; the DB-backed ones create and delete uniquely-marked rows and need the Hub migrations applied to the target database).
 
 **Known limits (by design, §42):** Devfolio's list API publishes no organiser for ~82% of rows, so those land in `NEEDS_REVIEW` (the data is genuinely absent, not missed). HackerEarth has no API and needs the renderer to crawl. Structured endpoints are **undocumented** — a shape change degrades to a missing field or a reported error, never a thrown run. No search provider, personalization, maps, or chatbot.
 
@@ -367,17 +380,35 @@ as finished and 154 as non-India offline. Zero judgement calls, zero errors.
 
 ### Ranking (§37)
 
-`hubScore` (0-100) is cached on the opportunity and computed at publish from the
-values being written, so the stored score and what the Hub shows cannot drift.
-Weights live in `RELEVANCE_WEIGHTS`:
+`hubScore` (0-100) is cached on the opportunity. It is computed at publish from
+the values being written, then refreshed as deadlines move so the stored score
+and what the Hub shows cannot drift. Weights live in `RELEVANCE_WEIGHTS`:
 
 | Signal | Points | Source |
 |---|---|---|
 | Popularity | 45 | Signup count, as a percentile within its own source |
 | Reachable | 25 | Online anywhere; India offline 20; unknown 12; abroad 5 |
-| Urgency | 15 | Closing in ≤7d 15, ≤30d 10, later 5, passed 0 |
+| Urgency | 15 | Closing in ≤7 calendar days 15, ≤30d 10, later 5, passed 0 |
 | Prize | 10 | A stated prize pool |
 | Verified | 5 | Checked by hand here |
+
+**Urgency is calendar-day arithmetic, not elapsed milliseconds.** A deadline
+published as a bare date is stored at midnight; comparing instants made it
+"passed" at 00:00 of the day it closes, so the score dropped 15 points overnight
+and the cached value drifted daily. `hubDaysUntil()` reads both sides in the
+deadline's own writing convention (UTC midnight for ingestion, local midnight for
+in-app rows), so the score is stable for the whole closing day and changes only
+when an urgency tier is actually crossed.
+
+**The cached score is refreshed where it can move.** `src/lib/hub/score-refresh.ts`
+re-scores the only rows whose urgency can have changed — deadlines inside the
+30-day tier plus slack (32 days either side of now). `staleScoreUpdates()` is the
+pure "which rows differ / to what" step; `refreshStaleHubScores()` fetches that
+window and writes only changed rows with an optimistic `updateMany` on the old
+value, so a concurrent publish is never clobbered. A `relevant` listing calls it
+(throttled to once per five minutes per process), and `/api/cron/hub` calls it
+from `revalidate` and the `scores` stage of `job=all` as a backstop. Rows with no
+deadline are constant and excluded.
 
 **Popularity is measured, never invented.** Every source publishes a signup
 count (Unstop `registerCount`, Devfolio `participants_count`, Devpost
@@ -396,9 +427,11 @@ sources (`indiahackathons`, `government`) publish no country field at all.
 score or no count land last under DESC rather than floating to the top.
 
 After changing the weights, re-run `npx tsx scripts/hub-rescore.ts` to refresh
-cached scores. It leaves `popularity`/`registrations` alone — only the source
-knows a signup count, so an old row stays unscored on that axis rather than
-being handed a made-up number.
+every cached score (normal deadline movement is handled by the refresh window
+above, so this is only for weight changes and backfilling rows published before
+the column existed). It leaves `popularity`/`registrations` alone — only the
+source knows a signup count, so an old row stays unscored on that axis rather
+than being handed a made-up number.
 
 ### Deduplication (§16)
 
@@ -419,6 +452,7 @@ Two rules stop it fusing genuinely different events: a title must be distinctive
 | Publish fails | Only title is required; other gaps publish as NULL. `DISCOVERED` rows must be extracted first. |
 | `P2000 value too long` | Writer bypassing `clipDbString` — all Hub writers clip; check custom callers. |
 | Cron 403 | Wrong/missing secret (header `x-cron-secret` or `?secret=`); admin session also works on `/api/cron/hub`. |
+| "Most relevant" order looks frozen | Cached `hubScore` is refreshed only for near-deadline rows — call `?job=revalidate` or `?job=all`, or run `npx tsx scripts/hub-rescore.ts` after changing weights. |
 | Build fails in `.next/dev/types/*.d.ts` with truncated code | Corrupt typegen artifact, not our code — delete `.next/dev/types` and rebuild. |
 | Prisma `EPERM` on generate (Windows) | A running `next dev` holds the engine DLL — types still update; regenerate after stopping dev. |
 | Stale admin clicks, no console errors | Stale mixed build (AGENTS.md Gotcha #4): kill by port PID, relaunch. |
@@ -429,13 +463,13 @@ Two rules stop it fusing genuinely different events: a title must be distinctive
 
 | Area | Files |
 |---|---|
-| Pipeline lib | `src/lib/hub/sources.ts`, `discovery.ts`, `extract.ts`, `csv.ts`, `pipeline.ts`, `monitor.ts`, `fetch-guard.ts` |
-| Shared Hub logic | `src/lib/hub/cities.ts` (single city/coordinate registry), `src/lib/hub/dates.ts` (sentinel/ISO/ambiguous-date validation), `src/lib/hackathon-hub.ts` (statuses, `isHubCategory`, `clipDbString`, `fitUrl`, source/verification enums) |
+| Pipeline lib | `src/lib/hub/sources.ts`, `discovery.ts`, `extract.ts`, `csv.ts`, `pipeline.ts`, `monitor.ts`, `fetch-guard.ts`, `score-refresh.ts` |
+| Shared Hub logic | `src/lib/hub/cities.ts` (single city/coordinate registry), `src/lib/hub/dates.ts` (sentinel/ISO/ambiguous-date validation), `src/lib/hackathon-hub.ts` (statuses, `hubCalendarDay`/`hubDaysUntil`, `hubCtaTarget`, `isHubCategory`, `clipDbString`, `fitUrl`, source/verification enums) |
 | Checks | `scripts/checks/hub-checks.ts` (pure regressions + DB integration for all review issues) |
 | Student UI | `src/app/innovation/hackathon-hub/page.tsx`, `src/app/api/hackathon-hub/route.ts` |
 | Admin UI | `src/app/admin/hackathons-content/page.tsx` (Dashboard, Queue, Import, Sources) |
 | Admin APIs | `src/app/api/admin/hub/{import,candidates,candidates/[id],sources,stats}/route.ts`, `src/app/api/admin/opportunities/[id]/route.ts` (+`showInHub`) |
-| Cron endpoint | `src/app/api/cron/hub/route.ts` (manual/admin-triggered; no GitHub Action) |
-| Schema | `Opportunity` (+12 Hub columns), `HubSource`, `HubCandidate`, `HubImportLog` in `prisma/schema.prisma` |
+| Cron endpoint | `src/app/api/cron/hub/route.ts` (manual/admin-triggered; no GitHub Action; `revalidate` + `all` refresh cached scores) |
+| Schema | `Opportunity` (+18 Hub columns), `HubSource`, `HubCandidate`, `HubImportLog` in `prisma/schema.prisma` |
 | Nav | Hub button in `src/app/innovation/page.tsx`; `Hackathons Content` in `src/components/Navbar.tsx` + Admin Content tab |
 | Validators | Hub enums, dates, teams, 191-char caps in `src/lib/validators.ts` |

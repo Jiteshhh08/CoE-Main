@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { authenticate, successRes, errorRes } from '@/lib/api-helpers';
+import { authenticate, authorize, successRes, errorRes } from '@/lib/api-helpers';
 import { getRegistrationStatus, getEventStatus } from '@/lib/hackathon-hub';
 import { kmFromTcet } from '@/lib/hub/pipeline';
+import { refreshStaleHubScores } from '@/lib/hub/score-refresh';
 
 // GET /api/hackathon-hub — public student listing (Phase 1, spec §28-29)
 // Filters: search, city, mode, domain (themes/technologies), month (YYYY-MM),
@@ -53,6 +54,27 @@ function rateLimited(key: string, now: number): boolean {
 function clientKey(req: NextRequest): string {
   const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   return forwarded || req.headers.get('x-real-ip')?.trim() || 'unknown';
+}
+
+// The cached hubScore only decays when a deadline crosses an urgency tier, so
+// refreshing the small near-deadline window once per window is enough. The
+// process-local guard matches the deployment assumption documented on the rate
+// limiter; the Hub cron calls the same function as a backstop.
+const SCORE_REFRESH_MS = 5 * 60_000;
+let lastScoreRefreshAt = 0;
+
+async function refreshScoresIfStale(now: Date): Promise<void> {
+  if (now.getTime() - lastScoreRefreshAt < SCORE_REFRESH_MS) return;
+  // Claim before awaiting so concurrent requests do not stampede the update.
+  lastScoreRefreshAt = now.getTime();
+  try {
+    const { updated } = await refreshStaleHubScores(now);
+    if (updated > 0) console.log(`Hub score refresh: ${updated} cached scores updated`);
+  } catch (err) {
+    // A listing must still render if the opportunistic refresh fails.
+    lastScoreRefreshAt = 0;
+    console.error('Hub score refresh failed:', err);
+  }
 }
 
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
@@ -150,16 +172,29 @@ export async function GET(req: NextRequest) {
     today.setHours(0, 0, 0, 0);
 
     // A hub listing should not surface events that are over and unjoinable.
-    // Excluded only when the registration closed AND the event ended; closed
+    // Excluded only when registration closed AND the event ended; closed
     // registration on a still-running event is a legitimate card.
+    //
+    // "Registration closed" uses the same effective close as the rest of the
+    // Hub: the published deadline, else the start date (a source that publishes
+    // no deadline closes when the event starts). Requiring a non-null
+    // `registrationDeadline` here left every deadline-less finished event in the
+    // listing forever — the card correctly read "Closes with start", but the
+    // API still treated it as joinable.
     //
     // Every comparison is null-guarded on purpose. A bare `lt` on a null column
     // yields NULL, and `NOT (TRUE AND NULL)` is NULL, so unguarded rows with a
     // missing date were silently dropped from the whole listing.
+    const registrationClosed = {
+      OR: [
+        { registrationDeadline: { not: null, lt: today } },
+        { registrationDeadline: null, startDate: { not: null, lt: today } },
+      ],
+    } satisfies Prisma.OpportunityWhereInput;
     const deadEvent: Prisma.OpportunityWhereInput = {
       NOT: {
         AND: [
-          { registrationDeadline: { not: null, lt: today } },
+          registrationClosed,
           {
             OR: [
               { endDate: { not: null, lt: today } },
@@ -275,6 +310,11 @@ export async function GET(req: NextRequest) {
       return true;
     };
 
+    // "Most relevant" is the only order that reads the cached score. Refresh
+    // the near-deadline window first so the page is ordered by today's
+    // relevance, not by the relevance the row had when it was published.
+    if (sort === 'relevant') await refreshScoresIfStale(now);
+
     const collected: Row[] = [];
     let scanCursor = cursor;
     let scanned = 0;
@@ -309,7 +349,15 @@ export async function GET(req: NextRequest) {
     const nextCursor = hasMore ? (items.length > 0 ? items[items.length - 1].id : lastScannedId) : null;
 
     let myInterestMap = new Map<number, { status: string }>();
-    if (user && items.length > 0) {
+    // Only a student can create an interest row (POST/DELETE both require
+    // STUDENT), so asking for anyone else is a guaranteed-empty query. The
+    // viewer block is what lets the UI render "Sign in to save" / "students
+    // only" before a click, instead of attempting a write and showing 401/403.
+    const viewer = {
+      authenticated: Boolean(user),
+      canSave: Boolean(user && authorize(user, 'STUDENT')),
+    };
+    if (viewer.canSave && user && items.length > 0) {
       const interests = await prisma.opportunityInterest.findMany({
         where: { userId: user.id, opportunityId: { in: items.map((o) => o.id) } },
         select: { opportunityId: true, status: true },
@@ -328,7 +376,7 @@ export async function GET(req: NextRequest) {
         ...opp,
         regStatus: getRegistrationStatus(opp.registrationDeadline ?? startDate, now),
         eventStatus: getEventStatus(startDate, opp.endDate, now),
-        myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
+        myInterest: viewer.canSave ? myInterestMap.get(opp.id) ?? null : null,
         regStatusSource: statusSource,
         distanceKm,
         distanceLabel:
@@ -355,10 +403,15 @@ export async function GET(req: NextRequest) {
           }
         : undefined;
 
-    return successRes(
-      { items: payload, nextCursor, hasMore, ...(facets ? { facets } : {}) },
+    const response = successRes(
+      { items: payload, nextCursor, hasMore, viewer, ...(facets ? { facets } : {}) },
       'Hackathon hub events retrieved successfully.',
     );
+    // The payload now varies per session (viewer + saved state), so a shared
+    // cache must never serve one user's answer to another.
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('Vary', 'Cookie, Authorization');
+    return response;
   } catch (err) {
     console.error('Hackathon hub GET error:', err);
     return errorRes('Internal server error', [], 500);

@@ -70,11 +70,54 @@ export function hubSourceLabel(sourceType: string | null | undefined): string {
  * makes a UTC midnight read as 05:30). Testing only one convention passes in the
  * environment that wrote the row and fails in the other.
  */
-function isMidnight(d: Date): boolean {
+function isUtcMidnight(d: Date): boolean {
   return (
-    (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) ||
-    (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0)
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
   );
+}
+
+function isLocalMidnight(d: Date): boolean {
+  return d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
+}
+
+function isMidnight(d: Date): boolean {
+  return isUtcMidnight(d) || isLocalMidnight(d);
+}
+
+function dayNumber(d: Date, useUtc: boolean): number {
+  return (
+    Date.UTC(
+      useUtc ? d.getUTCFullYear() : d.getFullYear(),
+      useUtc ? d.getUTCMonth() : d.getMonth(),
+      useUtc ? d.getUTCDate() : d.getDate(),
+    ) / 86_400_000
+  );
+}
+
+/**
+ * Calendar-day number (days since 1970-01-01) for a stored date, read with the
+ * convention it was written in. Ingestion stores UTC midnight; in-app code
+ * stores local midnight. Reading either through the wrong zone shifts the date
+ * by one.
+ */
+export function hubCalendarDay(value: Date | string): number {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return NaN;
+  return dayNumber(d, isUtcMidnight(d) && !isLocalMidnight(d));
+}
+
+/**
+ * Whole calendar days from `now` to `deadline`, read in the deadline's own
+ * convention. Both sides use the same calendar, so a UTC-midnight deadline does
+ * not lose a day when `now` is late in the IST evening. Negative once the
+ * deadline's day has passed.
+ */
+export function hubDaysUntil(deadline: Date, now: Date): number {
+  const useUtc = isUtcMidnight(deadline) && !isLocalMidnight(deadline);
+  return dayNumber(deadline, useUtc) - dayNumber(now, useUtc);
 }
 
 function endOfDayIfDateOnly(d: Date): number {
@@ -108,6 +151,24 @@ export function getEventStatus(
   }
   // No end date: treat start day as single-day event
   return t - s.getTime() < 86_400_000 ? 'ONGOING' : 'COMPLETED';
+}
+
+/**
+ * Where the primary CTA points. A closed event often still carries the
+ * application URL its source published, but offering "Register" after the
+ * deadline is a dead end; the original listing is the honest fallback. The
+ * card and the modal share this one rule.
+ */
+export type HubCtaTarget = { href: string; kind: 'register' | 'listing' };
+
+export function hubCtaTarget(opp: {
+  applicationUrl: string | null;
+  sourceUrl: string | null;
+  regStatus: string;
+}): HubCtaTarget | null {
+  if (opp.applicationUrl && opp.regStatus !== 'CLOSED') return { href: opp.applicationUrl, kind: 'register' };
+  if (opp.sourceUrl) return { href: opp.sourceUrl, kind: 'listing' };
+  return null;
 }
 
 export function normalizeName(value: string): string {

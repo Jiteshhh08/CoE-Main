@@ -21,7 +21,12 @@ import {
   isHubCategory,
   getEventStatus,
   getRegistrationStatus,
+  hubCalendarDay,
+  hubDaysUntil,
+  hubCtaTarget,
 } from "../../src/lib/hackathon-hub";
+import { computeHubScore } from "../../src/lib/hub/ranking";
+import { staleScoreUpdates } from "../../src/lib/hub/score-refresh";
 import {
   extractFromHtml,
   scoreConfidence,
@@ -49,6 +54,7 @@ import {
 } from "../../src/lib/hub/dates";
 import { HUB_CITIES, cityCoords, findHubCityInText, resolveHubCity } from "../../src/lib/hub/cities";
 import { opportunityCreateSchema, opportunityUpdateSchema } from "../../src/lib/validators";
+import { generateAccessToken } from "../../src/lib/jwt";
 import { GET as hubGET } from "../../src/app/api/hackathon-hub/route";
 
 let passed = 0;
@@ -199,6 +205,64 @@ check("isHubCandidateStatus: known states pass, typos fail", () => {
   assert.ok(isHubCandidateStatus("NEEDS_UPDATE"));
   assert.ok(!isHubCandidateStatus("VERIFYED"));
   assert.ok(!isHubCandidateStatus(""));
+});
+
+// ─── Card/modal CTA parity ───
+check("cta: closed never offers register; source is the fallback", () => {
+  const link = { applicationUrl: "https://example.com/apply", sourceUrl: "https://example.com/listing" };
+  assert.equal(hubCtaTarget({ ...link, regStatus: "OPEN" })?.kind, "register");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSING_SOON" })?.kind, "register");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSED" })?.kind, "listing");
+  assert.equal(hubCtaTarget({ ...link, regStatus: "CLOSED" })?.href, link.sourceUrl);
+  assert.equal(hubCtaTarget({ applicationUrl: link.applicationUrl, sourceUrl: null, regStatus: "CLOSED" }), null);
+  assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: link.sourceUrl, regStatus: "OPEN" })?.kind, "listing");
+  assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: null, regStatus: "OPEN" }), null);
+});
+
+// ─── Relevance urgency is calendar-day based ───
+const rankable = (deadline: Date | null) => ({
+  popularity: 50,
+  registrationDeadline: deadline,
+  prize: null,
+  mode: "ONLINE",
+  country: null,
+  verificationStatus: "UNVERIFIED",
+});
+
+check("score: a deadline closing today keeps its urgency all day", () => {
+  const deadline = new Date("2026-10-22T00:00:00Z");
+  const morning = computeHubScore(rankable(deadline), Date.parse("2026-10-22T00:01:00Z"));
+  const night = computeHubScore(rankable(deadline), Date.parse("2026-10-22T23:59:00Z"));
+  assert.equal(morning, night, "midnight-to-midnight decay must not happen inside the closing day");
+  assert.ok(morning > computeHubScore(rankable(new Date("2026-12-25T00:00:00Z")), Date.parse("2026-10-22T12:00:00Z")));
+});
+
+check("score: UTC and local midnight both resolve to the written calendar day", () => {
+  assert.equal(hubCalendarDay(new Date("2026-10-22T00:00:00Z")), Date.UTC(2026, 9, 22) / 86_400_000);
+  assert.equal(hubCalendarDay(new Date(2026, 9, 22)), Date.UTC(2026, 9, 22) / 86_400_000);
+  // Same convention on both sides: a UTC-midnight deadline is still day 0 at
+  // 23:59 UTC even though that is already the next day in IST.
+  assert.equal(hubDaysUntil(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-22T23:59:00Z")), 0);
+  assert.equal(hubDaysUntil(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-23T00:00:00Z")), -1);
+});
+
+check("score refresh: only changed rows are written, and a fresh row is left alone", () => {
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  const row = {
+    id: 1,
+    hubScore: 0,
+    popularity: 50,
+    registrationDeadline: new Date("2026-10-25T00:00:00Z"),
+    prize: null,
+    mode: "ONLINE",
+    country: null,
+    verificationStatus: "UNVERIFIED",
+  };
+  const updates = staleScoreUpdates([row], now);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].id, 1);
+  assert.ok(updates[0].next > 0);
+  assert.deepEqual(staleScoreUpdates([{ ...row, hubScore: updates[0].next }], now), []);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -458,8 +522,10 @@ check("issue6: placeholder descriptions recognised", () => {
 // ══════════════════════════════════════════════════════════════════════
 const MARK = `__hubcheck_${Date.now()}`;
 
-function api(path: string, ip = "unknown") {
-  return hubGET(new NextRequest(`http://localhost${path}`, { headers: { "x-forwarded-for": ip } }));
+function api(path: string, ip = "unknown", headers: Record<string, string> = {}) {
+  return hubGET(
+    new NextRequest(`http://localhost${path}`, { headers: { "x-forwarded-for": ip, ...headers } }),
+  );
 }
 
 async function runDbChecks() {
@@ -483,6 +549,8 @@ async function runDbChecks() {
     mode?: string | null;
     themes?: string[];
     startDate?: Date | null;
+    endDate?: Date | null;
+    registrationDeadline?: Date | null;
     createdAt?: Date;
   }) => {
     const row = await prisma.opportunity.create({
@@ -500,6 +568,8 @@ async function runDbChecks() {
         mode: data.mode ?? null,
         themes: data.themes ?? undefined,
         startDate: data.startDate ?? null,
+        endDate: data.endDate ?? null,
+        registrationDeadline: data.registrationDeadline ?? null,
         createdAt: data.createdAt ?? undefined,
         createdById: actorId,
       },
@@ -746,6 +816,84 @@ async function runDbChecks() {
       assert.equal("createdById" in item, false);
       assert.equal("pageHash" in item, false);
       assert.equal("verificationStatus" in item, true);
+    });
+
+    // The UI renders "Sign in to save" / "students only" from this block; it
+    // must never learn the role by firing a write that returns 401/403.
+    await checkAsync("viewer: capability is answered by the listing, interests only for students", async () => {
+      const token = `${MARK} Viewer`;
+      const opp = await mkOpp({
+        title: token,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+      });
+      const qs = `/api/hackathon-hub?search=${encodeURIComponent(token)}&limit=50`;
+      const jsonOf = async (headers: Record<string, string> = {}) =>
+        (await api(qs, "198.51.100.7", headers)).json();
+
+      const anonRes = await api(qs, "198.51.100.7");
+      const anon = await anonRes.json();
+      assert.match(anonRes.headers.get("cache-control") ?? "", /no-store/, "per-session payload must not be cached");
+      assert.deepEqual(anon.data.viewer, { authenticated: false, canSave: false });
+      assert.equal(anon.data.items[0].myInterest, null);
+
+      await prisma.opportunityInterest.create({
+        data: { userId: actorId, opportunityId: opp.id, status: "SAVED" },
+      });
+      const studentToken = generateAccessToken({
+        id: actorId,
+        role: "STUDENT",
+        name: "Check Student",
+        email: "checks@example.com",
+      });
+      const student = await jsonOf({ authorization: `Bearer ${studentToken}` });
+      assert.deepEqual(student.data.viewer, { authenticated: true, canSave: true });
+      assert.equal(student.data.items[0].myInterest.status, "SAVED");
+
+      const facultyToken = generateAccessToken({
+        id: actorId,
+        role: "FACULTY",
+        name: "Check Faculty",
+        email: "checks@example.com",
+      });
+      const faculty = await jsonOf({ authorization: `Bearer ${facultyToken}` });
+      assert.deepEqual(faculty.data.viewer, { authenticated: true, canSave: false });
+      assert.equal(faculty.data.items[0].myInterest, null, "non-students cannot own a save");
+    });
+
+    // A finished event with no published deadline has to be judged by its
+    // start date. Requiring a non-null deadline here kept these rows in the
+    // listing forever, even though the card already said "Closes with start".
+    await checkAsync("dead event: no deadline still means closed at start; running event stays", async () => {
+      const token = `${MARK} NullDeadline`;
+      const day = 86_400_000;
+      const past = new Date(Date.now() - 10 * day);
+      const future = new Date(Date.now() + 10 * day);
+      const dead = await mkOpp({
+        title: `${token} Dead`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+        startDate: past,
+        endDate: past,
+      });
+      const running = await mkOpp({
+        title: `${token} Running`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+        startDate: past,
+        endDate: future,
+      });
+      const undated = await mkOpp({
+        title: `${token} Undated`,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+      });
+      const json = await (await api(`/api/hackathon-hub?search=${encodeURIComponent(token)}&limit=50`)).json();
+      assert.equal(json.data.items.length, 2);
+      const ids = json.data.items.map((r: { id: number }) => r.id);
+      assert.equal(ids.includes(dead.id), false, "finished without a deadline must be hidden");
+      assert.ok(ids.includes(running.id), "still-running event must stay");
+      assert.ok(ids.includes(undated.id), "no dates at all is unknown, not finished");
     });
 
     await checkAsync("issue9: rate limiter returns 429 after the window budget", async () => {
