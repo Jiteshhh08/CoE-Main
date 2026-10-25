@@ -140,6 +140,7 @@ export default function HackathonHubPage() {
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<HubOpportunity | null>(null);
+  const [savingIds, setSavingIds] = useState<number[]>([]);
 
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('');
@@ -247,19 +248,46 @@ export default function HackathonHubPage() {
     return out;
   }, []);
 
-  const setInterest = async (opp: HubOpportunity, status: 'SAVED' | 'INTERESTED') => {
+  /** The card and the open modal must never disagree about the save state. */
+  const patchInterest = (id: number, myInterest: HubOpportunity['myInterest']) => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, myInterest } : r)));
+    setSelected((prev) => (prev && prev.id === id ? { ...prev, myInterest } : prev));
+  };
+
+  /**
+   * One button, two directions. It used to POST `SAVED` unconditionally, so a
+   * saved card could only ever be re-saved — the stored interest was invisible
+   * to the user and impossible to remove from the Hub. Clicking now removes the
+   * bookmark, using the DELETE the API already exposed.
+   *
+   * Optimistic: the icon flips immediately and rolls back if the server rejects
+   * the change, so the card never claims a save that did not happen.
+   */
+  const toggleSaved = async (opp: HubOpportunity) => {
+    if (savingIds.includes(opp.id)) return;
+    const previous = opp.myInterest;
+    const wasSaved = Boolean(previous);
+    setError('');
+    setSavingIds((prev) => [...prev, opp.id]);
+    patchInterest(opp.id, wasSaved ? null : { status: 'SAVED' });
     try {
       const res = await fetch(`/api/opportunities/${opp.id}/interest`, {
-        method: 'POST',
+        method: wasSaved ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ status }),
+        ...(wasSaved ? {} : { body: JSON.stringify({ status: 'SAVED' }) }),
       });
       const json = (await res.json()) as ApiResponse<unknown>;
-      if (!json.success) throw new Error(json.message || 'Failed to update interest.');
-      setRows((prev) => prev.map((r) => (r.id === opp.id ? { ...r, myInterest: { status } } : r)));
+      if (!json.success) {
+        if (res.status === 401) throw new Error('Sign in as a student to save opportunities.');
+        if (res.status === 403) throw new Error('Only students can save opportunities.');
+        throw new Error(json.message || 'Failed to update interest.');
+      }
     } catch (err) {
+      patchInterest(opp.id, previous);
       setError(err instanceof Error ? err.message : 'Failed to update interest.');
+    } finally {
+      setSavingIds((prev) => prev.filter((id) => id !== opp.id));
     }
   };
 
@@ -537,11 +565,16 @@ export default function HackathonHubPage() {
                     Details
                   </button>
                   <button
-                    onClick={() => void setInterest(opp, 'SAVED')}
-                    title={opp.myInterest ? 'Saved' : 'Save for later'}
-                    aria-label={opp.myInterest ? 'Saved' : 'Save for later'}
+                    onClick={() => void toggleSaved(opp)}
+                    disabled={savingIds.includes(opp.id)}
+                    title={opp.myInterest ? 'Remove from saved' : 'Save for later'}
+                    aria-label={opp.myInterest ? 'Remove from saved' : 'Save for later'}
                     aria-pressed={!!opp.myInterest}
-                    className="flex h-[34px] w-[34px] shrink-0 items-center justify-center border border-[#c4c6d3] text-[#8c4f00] hover:border-[#8c4f00] hover:bg-[#fdf6ec]"
+                    className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center border text-[#8c4f00] disabled:opacity-60 ${
+                      opp.myInterest
+                        ? 'border-[#8c4f00] bg-[#fdf6ec]'
+                        : 'border-[#c4c6d3] hover:border-[#8c4f00] hover:bg-[#fdf6ec]'
+                    }`}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
                       {opp.myInterest ? 'bookmark' : 'bookmark_border'}
