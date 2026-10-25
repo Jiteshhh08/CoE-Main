@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { hubCtaTarget, hubSourceLabel } from '@/lib/hackathon-hub';
 
@@ -90,6 +90,27 @@ const urgencyChip = (status: HubOpportunity['regStatus']): string => {
   return 'border-[#dfe2e8] bg-white text-[#747782]';
 };
 
+const REG_STATUS_LABEL: Record<HubOpportunity['regStatus'], string> = {
+  OPEN: 'Registration open',
+  CLOSING_SOON: 'Closing soon',
+  CLOSED: 'Registration closed',
+  UNKNOWN: 'Status unknown',
+};
+
+/** One sentence for the deadline, shared by the card and the modal. */
+const registrationDetail = (opp: HubOpportunity): string => {
+  if (!opp.registrationDeadline) {
+    return opp.startDate ? 'Closes when it starts' : 'Deadline not published';
+  }
+  if (opp.regStatus === 'CLOSED') return `Closed ${formatDate(opp.registrationDeadline)}`;
+  const days = daysUntil(opp.registrationDeadline);
+  const when = formatDate(opp.registrationDeadline);
+  if (days == null) return `Closes ${when}`;
+  if (days > 1) return `Closes ${when} · ${days} days left`;
+  if (days === 1) return `Closes ${when} · 1 day left`;
+  return `Closes ${when} · today`;
+};
+
 /** "OFFLINE" tells a student nothing; "In person" does. */
 const MODE_LABEL: Record<string, string> = {
   ONLINE: 'Online',
@@ -158,6 +179,11 @@ export default function HackathonHubPage() {
   const [month, setMonth] = useState('');
   const [sort, setSort] = useState<HubSort>('relevant');
 
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const selectedId = selected?.id ?? null;
+
   const buildParams = (cursor?: number | null) => {
     const params = new URLSearchParams();
     if (search.trim()) params.set('search', search.trim());
@@ -216,6 +242,58 @@ export default function HackathonHubPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, city, mode, regStatus, domain, month, sort]);
+
+  // Modal behaviour: lock the page behind the dialog, keep Tab inside it,
+  // close on Escape, and return focus to whichever control opened it.
+  useEffect(() => {
+    if (selectedId === null) return;
+
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelected(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      openerRef.current?.focus();
+    };
+  }, [selectedId]);
 
   const [cityFacets, setCityFacets] = useState<{ city: string; count: number }[]>([]);
 
@@ -432,17 +510,6 @@ export default function HackathonHubPage() {
       ) : (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((opp) => {
-            const days = daysUntil(opp.registrationDeadline);
-            // A deadline stored as a bare date closes at the end of that day, so
-            // it is still open on the day itself.
-            const closesIn =
-              opp.regStatus === 'CLOSED' || days == null
-                ? ''
-                : days > 1
-                  ? ` · ${days} days left`
-                  : days === 1
-                    ? ' · 1 day left'
-                    : ' · today';
             const place = [opp.city, opp.state, opp.country].filter(Boolean).join(', ');
             const location = opp.mode === 'ONLINE' ? 'Online' : place || 'TBD';
             // The date anchor answers "when is this hackathon" — the day it is on
@@ -540,11 +607,7 @@ export default function HackathonHubPage() {
                     title={opp.regStatusSource === 'startDate' ? 'No deadline published by the source — this is the start date' : undefined}
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(opp.regStatus)}`}
                   >
-                    {opp.registrationDeadline
-                      ? `${opp.regStatus === 'CLOSED' ? 'Closed' : 'Closes'} ${formatDate(opp.registrationDeadline)}${closesIn}`
-                      : opp.startDate
-                        ? 'Closes when it starts'
-                        : 'Deadline not published'}
+                    {registrationDetail(opp)}
                   </span>
                 </div>
                 <div className="mt-auto flex items-center gap-2 border-t border-[#e8e7e3] bg-[#fbfaf8] px-5 py-3">
@@ -637,15 +700,35 @@ export default function HackathonHubPage() {
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-4" onClick={() => setSelected(null)}>
-          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto bg-white border border-[#002155] p-6" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 md:items-center"
+          onClick={() => setSelected(null)}
+          role="presentation"
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hub-detail-title"
+            tabIndex={-1}
+            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto border border-[#002155] bg-white p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#8c4f00]">{selected.category} · {selected.eventStatus}</p>
-                <h2 className="mt-1 font-headline text-2xl font-bold text-[#002155]">{selected.title}</h2>
+                <h2 id="hub-detail-title" className="mt-1 font-headline text-2xl font-bold text-[#002155]">{selected.title}</h2>
                 <p className="text-sm text-[#434651]">by {selected.organizer}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="border border-[#c4c6d3] px-3 py-2 text-xs font-bold uppercase tracking-wider">Close</button>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                onClick={() => setSelected(null)}
+                aria-label="Close details"
+                className="border border-[#c4c6d3] px-3 py-2 text-xs font-bold uppercase tracking-wider hover:border-[#002155]"
+              >
+                Close
+              </button>
             </div>
             <div className="mt-4 space-y-4 text-sm text-[#434651]">
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Overview</h3>
@@ -653,23 +736,34 @@ export default function HackathonHubPage() {
                 <p className="mt-1">Dates: {formatDate(selected.startDate)} → {formatDate(selected.endDate)}</p>
                 {selected.description ? <p className="mt-2">{selected.description}</p> : null}
               </section>
-              <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
-                <p className="mt-1">Deadline: {selected.registrationDeadline ? formatDate(selected.registrationDeadline) : 'Not published'} · Status: {selected.regStatus}{selected.regStatusSource === 'startDate' ? ' (derived from start date)' : ''}</p>
-                {selectedCta ? (
-                  <a
-                    href={selectedCta.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={selectedCta.kind === 'listing' ? 'Open the original listing' : undefined}
-                    className="mt-2 inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
-                  >
-                    {selectedCta.kind === 'register' ? 'Register now' : 'View listing'}
-                  </a>
-                ) : (
-                  <span className="mt-2 inline-block border border-[#d8dae1] bg-[#f2f2f0] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#5c606b]">
-                    No link yet
+              <section>
+                <h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Registration</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${urgencyChip(selected.regStatus)}`}>
+                    {REG_STATUS_LABEL[selected.regStatus]}
                   </span>
-                )}
+                  <span>{registrationDetail(selected)}</span>
+                </div>
+                {selected.regStatusSource === 'startDate' ? (
+                  <p className="mt-1 text-xs text-[#747782]">No deadline published by the source — this is the start date.</p>
+                ) : null}
+                <div className="mt-2">
+                  {selectedCta ? (
+                    <a
+                      href={selectedCta.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={selectedCta.kind === 'listing' ? 'Open the original listing' : undefined}
+                      className="inline-block bg-[#002155] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[#00173d]"
+                    >
+                      {selectedCta.kind === 'register' ? 'Register now' : 'View listing'}
+                    </a>
+                  ) : (
+                    <span className="inline-block border border-[#d8dae1] bg-[#f2f2f0] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#5c606b]">
+                      No link yet
+                    </span>
+                  )}
+                </div>
               </section>
               <section><h3 className="font-bold text-[#002155] uppercase text-xs tracking-wider">Eligibility</h3>
                 <p className="mt-1">{selected.eligibility ?? 'Open — confirm on official page.'}</p>
