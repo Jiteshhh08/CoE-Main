@@ -179,7 +179,7 @@ export async function GET(req: NextRequest) {
     // Hub: the published deadline, else the start date (a source that publishes
     // no deadline closes when the event starts). Requiring a non-null
     // `registrationDeadline` here left every deadline-less finished event in the
-    // listing forever — the card correctly read "Closes when it starts", but the
+    // listing forever — the card correctly read "Closes with start", but the
     // API still treated it as joinable.
     //
     // Every comparison is null-guarded on purpose. A bare `lt` on a null column

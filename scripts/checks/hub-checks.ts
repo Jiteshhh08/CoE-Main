@@ -863,7 +863,7 @@ async function runDbChecks() {
 
     // A finished event with no published deadline has to be judged by its
     // start date. Requiring a non-null deadline here kept these rows in the
-    // listing forever, even though the card already said "Closes when it starts".
+    // listing forever, even though the card already said "Closes with start".
     await checkAsync("dead event: no deadline still means closed at start; running event stays", async () => {
       const token = `${MARK} NullDeadline`;
       const day = 86_400_000;
