@@ -58,7 +58,9 @@ export async function refreshStaleHubScores(now = new Date()): Promise<{ scanned
   const to = new Date(now.getTime() + WINDOW_DAYS * DAY_MS);
 
   const rows = await prisma.opportunity.findMany({
-    where: { registrationDeadline: { not: null, gte: from, lt: to } },
+    // Same visibility rule the listing uses: a score nobody can rank is not worth
+    // writing, and this runs on a page request.
+    where: { status: 'APPROVED', showInHub: true, registrationDeadline: { not: null, gte: from, lt: to } },
     select: {
       id: true,
       hubScore: true,
@@ -74,7 +76,7 @@ export async function refreshStaleHubScores(now = new Date()): Promise<{ scanned
   const updates = staleScoreUpdates(rows, now.getTime());
   // Optimistic on the previous value: a concurrent publish that already wrote a
   // newer score is never clobbered by this refresh.
-  await Promise.all(
+  const results = await Promise.all(
     updates.map((update) =>
       prisma.opportunity.updateMany({
         where: { id: update.id, hubScore: update.previous },
@@ -83,5 +85,7 @@ export async function refreshStaleHubScores(now = new Date()): Promise<{ scanned
     ),
   );
 
-  return { scanned: rows.length, updated: updates.length };
+  // Count what the guard actually matched, not what we attempted: an update that
+  // lost the race changed nothing and the caller should not be told otherwise.
+  return { scanned: rows.length, updated: results.reduce((total, r) => total + r.count, 0) };
 }

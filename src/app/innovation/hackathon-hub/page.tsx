@@ -100,7 +100,12 @@ const REG_STATUS_LABEL: Record<HubOpportunity['regStatus'], string> = {
 /** One sentence for the deadline, shared by the card and the modal. */
 const registrationDetail = (opp: HubOpportunity): string => {
   if (!opp.registrationDeadline) {
-    return opp.startDate ? `Closes with start · ${formatDate(opp.startDate)}` : 'Deadline not published';
+    if (!opp.startDate) return 'Deadline not published';
+    // No deadline published: registration is judged closed once the event starts,
+    // so the tense has to follow the status rather than assume it is still open.
+    return opp.regStatus === 'CLOSED'
+      ? `Closed at start · ${formatDate(opp.startDate)}`
+      : `Closes with start · ${formatDate(opp.startDate)}`;
   }
   if (opp.regStatus === 'CLOSED') return `Closed ${formatDate(opp.registrationDeadline)}`;
   const days = daysUntil(opp.registrationDeadline);
