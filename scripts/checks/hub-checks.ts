@@ -21,8 +21,12 @@ import {
   isHubCategory,
   getEventStatus,
   getRegistrationStatus,
+  hubCalendarDay,
+  hubDaysUntil,
   hubCtaTarget,
 } from "../../src/lib/hackathon-hub";
+import { computeHubScore } from "../../src/lib/hub/ranking";
+import { staleScoreUpdates } from "../../src/lib/hub/score-refresh";
 import {
   extractFromHtml,
   scoreConfidence,
@@ -213,6 +217,52 @@ check("cta: closed never offers register; source is the fallback", () => {
   assert.equal(hubCtaTarget({ applicationUrl: link.applicationUrl, sourceUrl: null, regStatus: "CLOSED" }), null);
   assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: link.sourceUrl, regStatus: "OPEN" })?.kind, "listing");
   assert.equal(hubCtaTarget({ applicationUrl: null, sourceUrl: null, regStatus: "OPEN" }), null);
+});
+
+// ─── Relevance urgency is calendar-day based ───
+const rankable = (deadline: Date | null) => ({
+  popularity: 50,
+  registrationDeadline: deadline,
+  prize: null,
+  mode: "ONLINE",
+  country: null,
+  verificationStatus: "UNVERIFIED",
+});
+
+check("score: a deadline closing today keeps its urgency all day", () => {
+  const deadline = new Date("2026-10-22T00:00:00Z");
+  const morning = computeHubScore(rankable(deadline), Date.parse("2026-10-22T00:01:00Z"));
+  const night = computeHubScore(rankable(deadline), Date.parse("2026-10-22T23:59:00Z"));
+  assert.equal(morning, night, "midnight-to-midnight decay must not happen inside the closing day");
+  assert.ok(morning > computeHubScore(rankable(new Date("2026-12-25T00:00:00Z")), Date.parse("2026-10-22T12:00:00Z")));
+});
+
+check("score: UTC and local midnight both resolve to the written calendar day", () => {
+  assert.equal(hubCalendarDay(new Date("2026-10-22T00:00:00Z")), Date.UTC(2026, 9, 22) / 86_400_000);
+  assert.equal(hubCalendarDay(new Date(2026, 9, 22)), Date.UTC(2026, 9, 22) / 86_400_000);
+  // Same convention on both sides: a UTC-midnight deadline is still day 0 at
+  // 23:59 UTC even though that is already the next day in IST.
+  assert.equal(hubDaysUntil(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-22T23:59:00Z")), 0);
+  assert.equal(hubDaysUntil(new Date("2026-10-22T00:00:00Z"), new Date("2026-10-23T00:00:00Z")), -1);
+});
+
+check("score refresh: only changed rows are written, and a fresh row is left alone", () => {
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  const row = {
+    id: 1,
+    hubScore: 0,
+    popularity: 50,
+    registrationDeadline: new Date("2026-10-25T00:00:00Z"),
+    prize: null,
+    mode: "ONLINE",
+    country: null,
+    verificationStatus: "UNVERIFIED",
+  };
+  const updates = staleScoreUpdates([row], now);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].id, 1);
+  assert.ok(updates[0].next > 0);
+  assert.deepEqual(staleScoreUpdates([{ ...row, hubScore: updates[0].next }], now), []);
 });
 
 // ══════════════════════════════════════════════════════════════════════

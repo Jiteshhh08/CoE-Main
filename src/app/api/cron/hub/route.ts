@@ -7,6 +7,7 @@ import { isFirecrawlConfigured, rendererHealthy, renderBudgetState } from '@/lib
 import prisma from '@/lib/prisma';
 import { deriveRegistrationDeadline, mandatoryMissing, scoreConfidence, wouldAutoVerify } from '@/lib/hub/confidence';
 import { rejectionReason } from '@/lib/hub/ranking';
+import { refreshStaleHubScores } from '@/lib/hub/score-refresh';
 import type { ExtractedEvent } from '@/lib/hub/extract';
 
 // Hub automation jobs (§33–34, Next.js cron-route form): separate lib stages,
@@ -121,8 +122,14 @@ export async function GET(req: NextRequest) {
           if (status === 'VERIFIED' && row.status !== 'VERIFIED') promoted += 1;
           if (status !== 'VERIFIED' && row.status === 'VERIFIED') demoted += 1;
         }
-        return { scanned: rows.length, promoted, demoted, deadlineFilled };
+        return { scanned: rows.length, promoted, demoted, deadlineFilled, scores: await refreshStaleHubScores() };
       });
+    }
+
+    // Cached relevance is time-dependent (urgency only), so this belongs in
+    // every full run as well as in `revalidate`. Bounded to near-deadline rows.
+    if (job === 'all') {
+      out.scores = await stage('scores', () => refreshStaleHubScores());
     }
 
     if (job === 'monitor' || job === 'all') {

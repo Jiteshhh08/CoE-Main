@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import { authenticate, authorize, successRes, errorRes } from '@/lib/api-helpers';
 import { getRegistrationStatus, getEventStatus } from '@/lib/hackathon-hub';
 import { kmFromTcet } from '@/lib/hub/pipeline';
+import { refreshStaleHubScores } from '@/lib/hub/score-refresh';
 
 // GET /api/hackathon-hub — public student listing (Phase 1, spec §28-29)
 // Filters: search, city, mode, domain (themes/technologies), month (YYYY-MM),
@@ -53,6 +54,27 @@ function rateLimited(key: string, now: number): boolean {
 function clientKey(req: NextRequest): string {
   const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   return forwarded || req.headers.get('x-real-ip')?.trim() || 'unknown';
+}
+
+// The cached hubScore only decays when a deadline crosses an urgency tier, so
+// refreshing the small near-deadline window once per window is enough. The
+// process-local guard matches the deployment assumption documented on the rate
+// limiter; the Hub cron calls the same function as a backstop.
+const SCORE_REFRESH_MS = 5 * 60_000;
+let lastScoreRefreshAt = 0;
+
+async function refreshScoresIfStale(now: Date): Promise<void> {
+  if (now.getTime() - lastScoreRefreshAt < SCORE_REFRESH_MS) return;
+  // Claim before awaiting so concurrent requests do not stampede the update.
+  lastScoreRefreshAt = now.getTime();
+  try {
+    const { updated } = await refreshStaleHubScores(now);
+    if (updated > 0) console.log(`Hub score refresh: ${updated} cached scores updated`);
+  } catch (err) {
+    // A listing must still render if the opportunistic refresh fails.
+    lastScoreRefreshAt = 0;
+    console.error('Hub score refresh failed:', err);
+  }
 }
 
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
@@ -287,6 +309,11 @@ export async function GET(req: NextRequest) {
       }
       return true;
     };
+
+    // "Most relevant" is the only order that reads the cached score. Refresh
+    // the near-deadline window first so the page is ordered by today's
+    // relevance, not by the relevance the row had when it was published.
+    if (sort === 'relevant') await refreshScoresIfStale(now);
 
     const collected: Row[] = [];
     let scanCursor = cursor;
