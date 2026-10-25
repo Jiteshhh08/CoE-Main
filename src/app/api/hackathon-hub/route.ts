@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { authenticate, successRes, errorRes } from '@/lib/api-helpers';
+import { authenticate, authorize, successRes, errorRes } from '@/lib/api-helpers';
 import { getRegistrationStatus, getEventStatus } from '@/lib/hackathon-hub';
 import { kmFromTcet } from '@/lib/hub/pipeline';
 
@@ -322,7 +322,15 @@ export async function GET(req: NextRequest) {
     const nextCursor = hasMore ? (items.length > 0 ? items[items.length - 1].id : lastScannedId) : null;
 
     let myInterestMap = new Map<number, { status: string }>();
-    if (user && items.length > 0) {
+    // Only a student can create an interest row (POST/DELETE both require
+    // STUDENT), so asking for anyone else is a guaranteed-empty query. The
+    // viewer block is what lets the UI render "Sign in to save" / "students
+    // only" before a click, instead of attempting a write and showing 401/403.
+    const viewer = {
+      authenticated: Boolean(user),
+      canSave: Boolean(user && authorize(user, 'STUDENT')),
+    };
+    if (viewer.canSave && user && items.length > 0) {
       const interests = await prisma.opportunityInterest.findMany({
         where: { userId: user.id, opportunityId: { in: items.map((o) => o.id) } },
         select: { opportunityId: true, status: true },
@@ -341,7 +349,7 @@ export async function GET(req: NextRequest) {
         ...opp,
         regStatus: getRegistrationStatus(opp.registrationDeadline ?? startDate, now),
         eventStatus: getEventStatus(startDate, opp.endDate, now),
-        myInterest: user ? myInterestMap.get(opp.id) ?? null : null,
+        myInterest: viewer.canSave ? myInterestMap.get(opp.id) ?? null : null,
         regStatusSource: statusSource,
         distanceKm,
         distanceLabel:
@@ -368,10 +376,15 @@ export async function GET(req: NextRequest) {
           }
         : undefined;
 
-    return successRes(
-      { items: payload, nextCursor, hasMore, ...(facets ? { facets } : {}) },
+    const response = successRes(
+      { items: payload, nextCursor, hasMore, viewer, ...(facets ? { facets } : {}) },
       'Hackathon hub events retrieved successfully.',
     );
+    // The payload now varies per session (viewer + saved state), so a shared
+    // cache must never serve one user's answer to another.
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('Vary', 'Cookie, Authorization');
+    return response;
   } catch (err) {
     console.error('Hackathon hub GET error:', err);
     return errorRes('Internal server error', [], 500);

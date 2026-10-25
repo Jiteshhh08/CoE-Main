@@ -10,7 +10,14 @@ type HubPage = {
   items: HubOpportunity[];
   nextCursor: number | null;
   hasMore: boolean;
+  viewer?: HubViewer;
   facets?: { cities: { city: string; count: number }[] };
+};
+
+/** Answered by the listing, so the save button never discovers the role by failing. */
+type HubViewer = {
+  authenticated: boolean;
+  canSave: boolean;
 };
 
 type HubOpportunity = {
@@ -141,6 +148,7 @@ export default function HackathonHubPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<HubOpportunity | null>(null);
   const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [viewer, setViewer] = useState<HubViewer>({ authenticated: false, canSave: false });
 
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('');
@@ -174,6 +182,7 @@ export default function HackathonHubPage() {
       setRows(json.data.items);
       setNextCursor(json.data.nextCursor);
       setHasMore(json.data.hasMore);
+      if (json.data.viewer) setViewer(json.data.viewer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load hackathons.');
     } finally {
@@ -194,6 +203,7 @@ export default function HackathonHubPage() {
       setRows((prev) => [...prev, ...data.items]);
       setNextCursor(data.nextCursor);
       setHasMore(data.hasMore);
+      if (data.viewer) setViewer(data.viewer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load more hackathons.');
     } finally {
@@ -279,8 +289,14 @@ export default function HackathonHubPage() {
       });
       const json = (await res.json()) as ApiResponse<unknown>;
       if (!json.success) {
-        if (res.status === 401) throw new Error('Sign in as a student to save opportunities.');
-        if (res.status === 403) throw new Error('Only students can save opportunities.');
+        if (res.status === 401 || res.status === 403) {
+          // The session changed under us (expired token, or a role the listing
+          // did not know about). Re-render the truthful button state instead of
+          // a red banner the user cannot act on.
+          setViewer({ authenticated: res.status === 403, canSave: false });
+          patchInterest(opp.id, previous);
+          return;
+        }
         throw new Error(json.message || 'Failed to update interest.');
       }
     } catch (err) {
@@ -564,22 +580,51 @@ export default function HackathonHubPage() {
                   >
                     Details
                   </button>
-                  <button
-                    onClick={() => void toggleSaved(opp)}
-                    disabled={savingIds.includes(opp.id)}
-                    title={opp.myInterest ? 'Remove from saved' : 'Save for later'}
-                    aria-label={opp.myInterest ? 'Remove from saved' : 'Save for later'}
-                    aria-pressed={!!opp.myInterest}
-                    className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center border text-[#8c4f00] disabled:opacity-60 ${
-                      opp.myInterest
-                        ? 'border-[#8c4f00] bg-[#fdf6ec]'
-                        : 'border-[#c4c6d3] hover:border-[#8c4f00] hover:bg-[#fdf6ec]'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
-                      {opp.myInterest ? 'bookmark' : 'bookmark_border'}
-                    </span>
-                  </button>
+                  {viewer.canSave ? (
+                    <button
+                      onClick={() => void toggleSaved(opp)}
+                      disabled={savingIds.includes(opp.id)}
+                      title={opp.myInterest ? 'Remove from saved' : 'Save for later'}
+                      aria-label={opp.myInterest ? 'Remove from saved' : 'Save for later'}
+                      aria-pressed={!!opp.myInterest}
+                      className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center border text-[#8c4f00] disabled:opacity-60 ${
+                        opp.myInterest
+                          ? 'border-[#8c4f00] bg-[#fdf6ec]'
+                          : 'border-[#c4c6d3] hover:border-[#8c4f00] hover:bg-[#fdf6ec]'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
+                        {opp.myInterest ? 'bookmark' : 'bookmark_border'}
+                      </span>
+                    </button>
+                  ) : viewer.authenticated ? (
+                    // A signed-in non-student has no write to attempt. Say so
+                    // once, here, instead of letting the click produce a 403.
+                    <button
+                      type="button"
+                      disabled
+                      title="Only students can save opportunities"
+                      aria-label="Only students can save opportunities"
+                      className="flex h-[34px] w-[34px] shrink-0 cursor-not-allowed items-center justify-center border border-[#e3e2df] text-[#b0b3bd]"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>
+                        bookmark_border
+                      </span>
+                    </button>
+                  ) : (
+                    // Signed out: the actionable state is "sign in", not a save
+                    // that is guaranteed to 401.
+                    <Link
+                      href={`/login?next=${encodeURIComponent('/innovation/hackathon-hub')}`}
+                      title="Sign in to save"
+                      className="flex h-[34px] shrink-0 items-center gap-1.5 whitespace-nowrap border border-[#c4c6d3] px-2 text-[10px] font-bold uppercase tracking-wider text-[#8c4f00] hover:border-[#8c4f00] hover:bg-[#fdf6ec]"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>
+                        bookmark_border
+                      </span>
+                      Sign in to save
+                    </Link>
+                  )}
                 </div>
               </article>
             );

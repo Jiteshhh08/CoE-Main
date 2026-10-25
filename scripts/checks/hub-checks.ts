@@ -49,6 +49,7 @@ import {
 } from "../../src/lib/hub/dates";
 import { HUB_CITIES, cityCoords, findHubCityInText, resolveHubCity } from "../../src/lib/hub/cities";
 import { opportunityCreateSchema, opportunityUpdateSchema } from "../../src/lib/validators";
+import { generateAccessToken } from "../../src/lib/jwt";
 import { GET as hubGET } from "../../src/app/api/hackathon-hub/route";
 
 let passed = 0;
@@ -458,8 +459,10 @@ check("issue6: placeholder descriptions recognised", () => {
 // ══════════════════════════════════════════════════════════════════════
 const MARK = `__hubcheck_${Date.now()}`;
 
-function api(path: string, ip = "unknown") {
-  return hubGET(new NextRequest(`http://localhost${path}`, { headers: { "x-forwarded-for": ip } }));
+function api(path: string, ip = "unknown", headers: Record<string, string> = {}) {
+  return hubGET(
+    new NextRequest(`http://localhost${path}`, { headers: { "x-forwarded-for": ip, ...headers } }),
+  );
 }
 
 async function runDbChecks() {
@@ -750,6 +753,49 @@ async function runDbChecks() {
       assert.equal("createdById" in item, false);
       assert.equal("pageHash" in item, false);
       assert.equal("verificationStatus" in item, true);
+    });
+
+    // The UI renders "Sign in to save" / "students only" from this block; it
+    // must never learn the role by firing a write that returns 401/403.
+    await checkAsync("viewer: capability is answered by the listing, interests only for students", async () => {
+      const token = `${MARK} Viewer`;
+      const opp = await mkOpp({
+        title: token,
+        organizer: `${MARK} Org`,
+        verificationStatus: "UNVERIFIED",
+      });
+      const qs = `/api/hackathon-hub?search=${encodeURIComponent(token)}&limit=50`;
+      const jsonOf = async (headers: Record<string, string> = {}) =>
+        (await api(qs, "198.51.100.7", headers)).json();
+
+      const anonRes = await api(qs, "198.51.100.7");
+      const anon = await anonRes.json();
+      assert.match(anonRes.headers.get("cache-control") ?? "", /no-store/, "per-session payload must not be cached");
+      assert.deepEqual(anon.data.viewer, { authenticated: false, canSave: false });
+      assert.equal(anon.data.items[0].myInterest, null);
+
+      await prisma.opportunityInterest.create({
+        data: { userId: actorId, opportunityId: opp.id, status: "SAVED" },
+      });
+      const studentToken = generateAccessToken({
+        id: actorId,
+        role: "STUDENT",
+        name: "Check Student",
+        email: "checks@example.com",
+      });
+      const student = await jsonOf({ authorization: `Bearer ${studentToken}` });
+      assert.deepEqual(student.data.viewer, { authenticated: true, canSave: true });
+      assert.equal(student.data.items[0].myInterest.status, "SAVED");
+
+      const facultyToken = generateAccessToken({
+        id: actorId,
+        role: "FACULTY",
+        name: "Check Faculty",
+        email: "checks@example.com",
+      });
+      const faculty = await jsonOf({ authorization: `Bearer ${facultyToken}` });
+      assert.deepEqual(faculty.data.viewer, { authenticated: true, canSave: false });
+      assert.equal(faculty.data.items[0].myInterest, null, "non-students cannot own a save");
     });
 
     // A finished event with no published deadline has to be judged by its
